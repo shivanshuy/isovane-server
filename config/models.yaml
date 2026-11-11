@@ -1,0 +1,26 @@
+# Model routing for Isovane architecture image features.
+# Override with env:
+#   ISOVANE_MODEL_PROVIDER
+#   ISOVANE_OLLAMA_BASE_URL
+#   ISOVANE_OLLAMA_ARC_IMAGE_EXTRACT / ISOVANE_OLLAMA_ARC_IMAGE_ANALYZE
+#   ISOVANE_OPENAI_API_KEY / OPENAI_API_KEY
+#   ISOVANE_OPENAI_ARC_IMAGE_EXTRACT / ISOVANE_OPENAI_ARC_IMAGE_ANALYZE
+
+MODEL_PROVIDER: ollama   # ollama | openai
+
+ollama:
+  base_url: http://127.0.0.1:11434
+  # Vision model: PNG/JPG → boxes + arrows (extract).
+  # Prefer llava (or qwen2.5vl:3b) — llama3.2-vision needs mllama and fails on many Ollama builds.
+  arc_image_extract: llava
+  # Text model: reconstructed graph → architecture risk findings (analyze)
+  arc_image_analyze: llama3.1:8b
+  timeout_seconds: 180
+
+openai:
+  base_url: https://api.openai.com/v1
+  # Set via env OPENAI_API_KEY or ISOVANE_OPENAI_API_KEY (do not commit keys)
+  api_key_env: OPENAI_API_KEY
+  arc_image_extract: gpt-4o
+  arc_image_analyze: gpt-4o-mini
+  timeout_seconds: 120

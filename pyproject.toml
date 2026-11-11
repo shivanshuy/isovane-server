@@ -1,0 +1,48 @@
+[tool.poetry]
+name = "isovane-server"
+version = "0.1.0"
+description = "FastAPI workspace REST API; LangGraph release gate via langgraph dev."
+authors = ["Isovane"]
+readme = "README.md"
+packages = [{ include = "isovane_serve", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.115.0"
+uvicorn = { extras = ["standard"], version = "^0.32.0" }
+langgraph = ">=0.2.0"
+langchain-core = ">=0.3.0"
+pyyaml = "^6.0.2"
+python-multipart = "^0.0.17"
+detect-secrets = "^1.5.0"
+bandit = "^1.8.0"
+libcst = "^1.5.0"
+semgrep = "^1.97.0"
+presidio-analyzer = { version = "^2.2.0", optional = true }
+pytesseract = { version = "^0.3.10", optional = true }
+pillow = { version = "^11.0.0", optional = true }
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.8.0"
+pytest = "^8.3.0"
+httpx = "^0.28.0"
+langgraph-cli = { version = "^0.4.0", extras = ["inmem"] }
+
+[tool.poetry.scripts]
+isovane-serve = "isovane_serve.main:main"
+isovane-scan = "isovane_serve.cli:main"
+
+[tool.poetry.extras]
+pii = ["presidio-analyzer"]
+ocr = ["pytesseract", "pillow"]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

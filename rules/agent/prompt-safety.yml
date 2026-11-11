@@ -1,0 +1,109 @@
+# Prompt / policy text rules (generic) — Isovane-authored.
+# Composed at scan time with Semgrep Registry p/ai-best-practices (2A).
+rules:
+  - id: isovane.prompt.jailbreak-invite
+    languages: [generic]
+    severity: WARNING
+    message: "Prompt invites role override / ignore-previous behavior (LLM01)."
+    metadata:
+      owasp: [LLM01]
+      isovane_category: prompt
+      isovane_title: "Jailbreak-inviting phrasing"
+      isovane_fix_kind: prompt
+      isovane_fix_summary: "Remove jailbreak invitations; add refusal boundaries."
+    paths:
+      include:
+        - "*.md"
+        - "*.txt"
+        - "*.py"
+        - "*prompt*"
+        - "*system*"
+        - "*SYSTEM*"
+    pattern-either:
+      - pattern-regex: (?i)ignore\s+previous
+      - pattern-regex: (?i)\bjailbreak\b
+
+  - id: isovane.prompt.rag-without-trust
+    languages: [generic]
+    severity: ERROR
+    message: "Retrieved/RAG context is concatenated without an untrusted/trust boundary (LLM01/LLM08)."
+    metadata:
+      owasp: [LLM01, LLM08]
+      isovane_category: prompt
+      isovane_title: "RAG concat without trust boundary"
+      isovane_fix_kind: prompt
+      isovane_fix_summary: "Mark retrieved text as untrusted; forbid tools from RAG alone."
+    paths:
+      include:
+        - "*.md"
+        - "*.txt"
+        - "*.py"
+        - "*prompt*"
+        - "*system*"
+    patterns:
+      - pattern-either:
+          - pattern-regex: \{[^}]*rag[^}]*\}
+          - pattern-regex: \{\{\s*context\s*\}\}
+          - pattern-regex: \{context\}
+          - pattern-regex: (?i)retrieved (document |doc )?excerpts
+      - pattern-not-regex: (?i)\b(untrusted|trust\s+boundary|do\s+not\s+trust)\b
+
+  - id: isovane.prompt.missing-pii-bounds
+    languages: [generic]
+    severity: WARNING
+    message: "System/prompt text lacks PII handling or disclosure limits (LLM02)."
+    metadata:
+      owasp: [LLM02]
+      isovane_category: prompt
+      isovane_title: "Missing PII / disclosure bounds"
+      isovane_fix_kind: prompt
+      isovane_fix_summary: "Add PII non-disclosure and redact-before-tool rules."
+    paths:
+      include:
+        - "*.py"
+        - "*prompt*"
+        - "*system*"
+        - "SYSTEM*"
+    patterns:
+      - pattern-regex: (?is)(you are |system\s*prompt|SystemMessage|system\s*=\s*["'])
+      - pattern-not-regex: (?i)\b(pii|personal data|redact|do not (share|exfiltrate))\b
+
+  - id: isovane.prompt.tools-without-hitl
+    languages: [generic]
+    severity: ERROR
+    message: "Prompt mentions tools/search/actions but no human confirmation (LLM06/ASI09)."
+    metadata:
+      owasp: [LLM06, ASI09]
+      isovane_category: agency
+      isovane_title: "Tools mentioned without HITL"
+      isovane_fix_kind: prompt
+      isovane_fix_summary: "Require confirmation before send/pay/shell/search side-effects."
+    paths:
+      include:
+        - "*.md"
+        - "*.txt"
+        - "*.py"
+        - "*prompt*"
+        - "*system*"
+    patterns:
+      - pattern-regex: (?i)\b(send|email|pay|refund|shell|exec|write|tool|search|duckduckgo|browse)\b
+      - pattern-not-regex: (?i)\b(confirm|human|approval|hitl)\b
+
+  - id: isovane.prompt.system-disclosure
+    languages: [generic]
+    severity: INFO
+    message: "Prompt may encourage revealing system instructions (LLM07)."
+    metadata:
+      owasp: [LLM07]
+      isovane_category: prompt
+      isovane_title: "System prompt self-disclosure risk"
+      isovane_fix_kind: prompt
+      isovane_fix_summary: "Forbid repeating system instructions verbatim."
+    paths:
+      include:
+        - "*.py"
+        - "*prompt*"
+        - "*system*"
+    patterns:
+      - pattern-regex: (?i)you are
+      - pattern-regex: (?i)system prompt

@@ -1,0 +1,56 @@
+# LangChain / LangGraph agent patterns — Isovane-authored only.
+rules:
+  - id: isovane.agent.langchain-react
+    languages: [python]
+    severity: WARNING
+    message: "LangGraph create_react_agent grants tool-calling agency (LLM06). Ensure a policy gate outside the model."
+    metadata:
+      owasp: [LLM06, ASI03]
+      isovane_category: agency
+      isovane_title: "LangGraph ReAct agent with tools"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Wrap tool invoke with an allow-list / HITL gate outside the LLM."
+    pattern: create_react_agent(...)
+
+  - id: isovane.agent.bind-tools
+    languages: [python]
+    severity: WARNING
+    message: "llm.bind_tools attaches tools to the model (LLM06). Confirm allow-list + confirmation for consequential tools."
+    metadata:
+      owasp: [LLM06]
+      isovane_category: agency
+      isovane_title: "LLM bind_tools without obvious gate"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Keep bind_tools but enforce tool policy in a sidecar before execute."
+    pattern: $LLM.bind_tools(...)
+
+  - id: isovane.agent.web-search-tool
+    languages: [python]
+    severity: INFO
+    message: "Web search tool wiring detected. Untamed browse/search is a common prompt-injection / SSRF amplifier (LLM01/LLM06)."
+    metadata:
+      owasp: [LLM01, LLM06]
+      isovane_category: agency
+      isovane_title: "Web search tool attached to agent"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Allow-list domains, strip HTML instructions, gate search behind policy."
+    pattern-either:
+      - pattern: get_web_search_tools(...)
+      - pattern-regex: duckduckgo_search
+      - pattern-regex: TavilySearch
+      - pattern-regex: DuckDuckGoSearch
+
+  - id: isovane.agent.system-message-prompt
+    languages: [python]
+    severity: INFO
+    message: "SystemMessage / system prompt constructed in code — review for jailbreak, PII, and HITL bounds (LLM01/LLM02)."
+    metadata:
+      owasp: [LLM01, LLM02]
+      isovane_category: prompt
+      isovane_title: "System prompt built in Python"
+      isovane_fix_kind: prompt
+      isovane_fix_summary: "Harden system text: refusals, PII, tool confirm; keep policy in code too."
+    pattern-either:
+      - pattern: SystemMessage(...)
+      - pattern-regex: (?i)system\s*=\s*["']You are
+      - pattern-regex: (?i)return\s*\(\s*f?["']You are

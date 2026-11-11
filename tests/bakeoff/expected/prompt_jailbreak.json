@@ -1,0 +1,4 @@
+{
+  "fixture": "prompt_jailbreak",
+  "must_match_substrings": ["ignore", "jailbreak"]
+}

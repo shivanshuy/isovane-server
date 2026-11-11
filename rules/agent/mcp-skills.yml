@@ -1,0 +1,95 @@
+# MCP / skills / supply-chain — expands Isovane pack toward detection parity.
+rules:
+  - id: isovane.mcp.stdio-client-unpinned
+    languages: [python]
+    severity: WARNING
+    message: "MCP stdio client spawned without a pinned server package (ASI04)."
+    metadata:
+      owasp: [ASI04, LLM03]
+      isovane_category: agency
+      isovane_title: "MCP stdio client without pinned server"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Pin MCP server package version; avoid @latest / naked npx."
+    patterns:
+      - pattern-either:
+          - pattern: stdio_client(...)
+          - pattern: StdioServerParameters(...)
+      - pattern-not: StdioServerParameters(..., args=[..., "==$V", ...], ...)
+
+  - id: isovane.mcp.npx-latest
+    languages: [python, javascript, typescript]
+    severity: ERROR
+    message: "npx/uvx @latest used for MCP or agent tooling (ASI04)."
+    metadata:
+      owasp: [ASI04]
+      isovane_category: agency
+      isovane_title: "Unpinned npx/uvx @latest for agent tooling"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Pin exact package versions for MCP servers and CLIs."
+    pattern-regex: (npx|uvx).{0,40}@latest
+
+  - id: isovane.prompt.chatprompt-user-fstring
+    languages: [python]
+    severity: ERROR
+    message: "ChatPromptTemplate / system template built with f-string user data (LLM01)."
+    metadata:
+      owasp: [LLM01]
+      isovane_category: prompt
+      isovane_title: "Prompt template interpolates user data"
+      isovane_fix_kind: prompt
+      isovane_fix_summary: "Use template variables; never f-string user content into system role."
+    pattern-either:
+      - pattern: ChatPromptTemplate.from_messages([..., ("system", f"...{$USER}..."), ...])
+      - pattern: ChatPromptTemplate.from_template(f"...{$USER}...")
+
+  - id: isovane.agent.tool-decorator-shell
+    languages: [python]
+    severity: ERROR
+    message: "@tool wrapping shell/subprocess — high agency risk (ASI05)."
+    metadata:
+      owasp: [ASI05, LLM06]
+      isovane_category: agency
+      isovane_title: "Shell tool exposed to the agent"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Remove shell tools from agent allow-list or require HITL + sandbox."
+    patterns:
+      - pattern-inside: |
+          @tool
+          def $F(...):
+            ...
+      - pattern-either:
+          - pattern: subprocess.$M(...)
+          - pattern: os.system(...)
+          - pattern: os.popen(...)
+
+  - id: isovane.rag.vectorstore-no-filter
+    languages: [python]
+    severity: WARNING
+    message: "Vector similarity search without metadata filter — tenant/auth risk (LLM08)."
+    metadata:
+      owasp: [LLM08]
+      isovane_category: agency
+      isovane_title: "Vector search without metadata filter"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Pass tenant/user filters into similarity_search."
+    patterns:
+      - pattern-either:
+          - pattern: $VS.similarity_search($Q)
+          - pattern: $VS.similarity_search_with_score($Q)
+      - pattern-not: $VS.similarity_search($Q, filter=$F)
+      - pattern-not: $VS.similarity_search($Q, ..., filter=$F, ...)
+
+  - id: isovane.agent.a2a-handoff
+    languages: [python]
+    severity: WARNING
+    message: "Agent-to-agent handoff / send_message without auth markers (ASI07)."
+    metadata:
+      owasp: [ASI07]
+      isovane_category: agency
+      isovane_title: "A2A handoff without auth markers"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Authenticate and attest inter-agent messages."
+    pattern-either:
+      - pattern: $A.send_message(...)
+      - pattern: handoff(...)
+      - pattern: Handoff(...)

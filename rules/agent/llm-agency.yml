@@ -1,0 +1,119 @@
+# LLMArmor-style agency / consumption gaps — Isovane-authored; complements Semgrep p/ai-best-practices.
+rules:
+  - id: isovane.agent.unbounded-while-llm
+    languages: [python]
+    severity: WARNING
+    message: "LLM invoke inside while True without an obvious break/limit (LLM10/LLM06)."
+    metadata:
+      owasp: [LLM10, LLM06]
+      isovane_category: agency
+      isovane_title: "Unbounded agent loop around LLM call"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Add max_iterations / timeout break before llm.invoke / ainvoke."
+    patterns:
+      - pattern-inside: |
+          while True:
+            ...
+      - pattern-either:
+          - pattern: $LLM.invoke(...)
+          - pattern: $LLM.ainvoke(...)
+          - pattern: $CHAIN.invoke(...)
+          - pattern: $AGENT.invoke(...)
+
+  - id: isovane.agent.missing-max-tokens
+    languages: [python]
+    severity: INFO
+    message: "Chat model constructed without max_tokens / max_completion_tokens (LLM10)."
+    metadata:
+      owasp: [LLM10]
+      isovane_category: agency
+      isovane_title: "LLM client missing max_tokens bound"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Set max_tokens (or provider equivalent) on every model client."
+    patterns:
+      - pattern-either:
+          - pattern: ChatOpenAI(...)
+          - pattern: ChatAnthropic(...)
+          - pattern: AzureChatOpenAI(...)
+          - pattern: ChatGoogleGenerativeAI(...)
+      - pattern-not: ChatOpenAI(..., max_tokens=$N, ...)
+      - pattern-not: ChatOpenAI(..., max_completion_tokens=$N, ...)
+      - pattern-not: ChatAnthropic(..., max_tokens=$N, ...)
+      - pattern-not: AzureChatOpenAI(..., max_tokens=$N, ...)
+      - pattern-not: ChatGoogleGenerativeAI(..., max_tokens=$N, ...)
+      - pattern-not: ChatGoogleGenerativeAI(..., max_output_tokens=$N, ...)
+
+  - id: isovane.agent.user-into-system-fstring
+    languages: [python]
+    severity: ERROR
+    message: "User-controlled value interpolated into a system prompt string (LLM01)."
+    metadata:
+      owasp: [LLM01]
+      isovane_category: prompt
+      isovane_title: "User input concatenated into system prompt"
+      isovane_fix_kind: prompt
+      isovane_fix_summary: "Keep system text static; pass user content as HumanMessage only."
+    pattern-either:
+      - pattern: |
+          SystemMessage(content=f"...{$USER}...")
+      - pattern: |
+          SystemMessage(content="..." + $USER + "...")
+      - pattern: |
+          {"role": "system", "content": f"...{$USER}..."}
+
+  - id: isovane.agent.wildcard-tools-list
+    languages: [python]
+    severity: WARNING
+    message: "Agent/tools wired with an unrestricted tools list variable — verify allow-list (LLM06)."
+    metadata:
+      owasp: [LLM06]
+      isovane_category: agency
+      isovane_title: "Agent constructed with open tools list"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Pass an explicit allow-listed tools=[...] and gate invoke."
+    pattern-either:
+      - pattern: create_react_agent($MODEL, $TOOLS, ...)
+      - pattern: create_tool_calling_agent($MODEL, $TOOLS, ...)
+      - pattern: AgentExecutor(tools=$TOOLS, ...)
+      - pattern: initialize_agent($TOOLS, ...)
+
+  - id: isovane.agent.output-to-eval
+    languages: [python]
+    severity: ERROR
+    message: "Model/tool output may reach eval/exec (LLM05)."
+    metadata:
+      owasp: [LLM05, ASI05]
+      isovane_category: agency
+      isovane_title: "LLM output path to eval/exec"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Never eval model text; parse with typed schemas."
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $R = $LLM.invoke(...)
+              ...
+              eval($R)
+          - pattern: |
+              $R = $LLM.invoke(...)
+              ...
+              eval($R.content)
+          - pattern: |
+              $R = $CHAIN.invoke(...)
+              ...
+              exec($R)
+
+  - id: isovane.agent.crewai-agent
+    languages: [python]
+    severity: INFO
+    message: "CrewAI Agent/Crew detected — review tools, allow-delegation, and HITL (LLM06)."
+    metadata:
+      owasp: [LLM06]
+      isovane_category: agency
+      isovane_title: "CrewAI Agent with tools"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Restrict tools= and disable unsupervised delegation for consequential actions."
+    patterns:
+      - pattern-regex: (?m)^\s*(from\s+crewai(\.|\s+import)|import\s+crewai)
+      - pattern-either:
+          - pattern-regex: \bAgent\s*\(
+          - pattern-regex: \bCrew\s*\(

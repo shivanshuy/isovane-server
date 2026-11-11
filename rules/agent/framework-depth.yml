@@ -1,0 +1,106 @@
+# Extra high-precision agency / prompt rules — pack depth toward ≥40.
+rules:
+  - id: isovane.agent.crewai-tools-open
+    languages: [python]
+    severity: WARNING
+    message: "CrewAI Agent with tools= — verify allow-list and HITL (LLM06)."
+    metadata:
+      owasp: [LLM06]
+      isovane_category: agency
+      isovane_title: "CrewAI Agent with tools attached"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Pass an explicit tools allow-list; gate irreversible actions."
+    pattern: Agent(..., tools=$T, ...)
+
+  - id: isovane.agent.crewai-process-hierarchical
+    languages: [python]
+    severity: INFO
+    message: "CrewAI hierarchical process increases agency — review manager tools (LLM06)."
+    metadata:
+      owasp: [LLM06]
+      isovane_category: agency
+      isovane_title: "CrewAI hierarchical process"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Limit manager agent tools; add human approval for side effects."
+    pattern: Process.hierarchical
+
+  - id: isovane.prompt.ignore-safety-string
+    languages: [python]
+    severity: ERROR
+    message: "Prompt text invites ignoring safety / previous instructions (LLM01)."
+    metadata:
+      owasp: [LLM01]
+      isovane_category: prompt
+      isovane_title: "Jailbreak-style instruction in source string"
+      isovane_fix_kind: prompt
+      isovane_fix_summary: "Remove jailbreak invitations from prompts and fixtures."
+    pattern-regex: (?i)ignore (all )?(previous|prior|above) (instructions|rules)
+
+  - id: isovane.agent.output-parser-eval
+    languages: [python]
+    severity: ERROR
+    message: "LLM output path reaches eval/exec/json.loads into code exec (LLM05)."
+    metadata:
+      owasp: [LLM05, ASI05]
+      isovane_category: agency
+      isovane_title: "LLM output parsed into code execution"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Never eval model output; use structured parsers + allow-lists."
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $OUT = $LLM.invoke(...)
+              ...
+              eval($OUT)
+          - pattern: |
+              $OUT = $LLM.invoke(...)
+              ...
+              exec($OUT)
+
+  - id: isovane.pii.hardcoded-api-key-assign
+    languages: [python]
+    severity: ERROR
+    message: "Hardcoded API key / secret assignment in agent code."
+    metadata:
+      owasp: [LLM02]
+      isovane_category: pii
+      isovane_title: "Hardcoded secret assignment"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Load secrets from env / secret manager; rotate exposed keys."
+    pattern-regex: (?i)(api_key|apikey|secret_key|openai_api_key)\s*=\s*["'][A-Za-z0-9_\-]{16,}["']
+
+  - id: isovane.agent.requests-exfil
+    languages: [python]
+    severity: WARNING
+    message: "HTTP request in agent tool path may exfiltrate context (ASI02)."
+    metadata:
+      owasp: [ASI02, LLM02]
+      isovane_category: agency
+      isovane_title: "Outbound HTTP from agent tool path"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Allow-list egress hosts; DLP on request bodies."
+    patterns:
+      - pattern-inside: |
+          @tool
+          def $F(...):
+            ...
+      - pattern-either:
+          - pattern: requests.get(...)
+          - pattern: requests.post(...)
+          - pattern: httpx.get(...)
+          - pattern: httpx.post(...)
+
+  - id: isovane.agent.memory-write-untrusted
+    languages: [python]
+    severity: WARNING
+    message: "Agent memory write from untrusted channel markers (ASI06)."
+    metadata:
+      owasp: [ASI06]
+      isovane_category: agency
+      isovane_title: "Memory write may accept untrusted content"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Sanitize and authz memory writes; isolate tenants."
+    pattern-either:
+      - pattern: $MEM.save_context(...)
+      - pattern: $MEM.add_documents(...)
+      - pattern: $STORE.put(...)

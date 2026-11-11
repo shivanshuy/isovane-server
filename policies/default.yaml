@@ -1,0 +1,12 @@
+version: 1
+allow_tools: [read, list, search, get, log]
+consequential: [send, email, mail, pay, transfer, refund, write, delete, shell, exec, fetch, urlopen, browse]
+require_confirm: [send, pay, refund, write, delete, shell, exec, fetch, urlopen]
+money_tools: [pay, transfer, refund]
+untrusted_sources: [email, web, page, doc, document, tool_return, rag]
+block_if_untrusted_source: true
+amount_cap: 500
+deny_pii_outbound: true
+pii_classes: [email, phone, pan, aadhaar, ssn, api_key, password, credit_card]
+max_tool_calls_per_run: 40
+timeout_seconds: 120

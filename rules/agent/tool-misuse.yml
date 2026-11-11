@@ -1,0 +1,81 @@
+# Isovane-authored Semgrep CE rules (local pack).
+# Upstream p/ai-best-practices is composed separately by the scanner.
+rules:
+  - id: isovane.agent.shell-true
+    languages: [python]
+    severity: ERROR
+    message: "shell=True enables unexpected code execution (ASI05). Prefer argument lists and gate the tool."
+    metadata:
+      owasp: [ASI05, LLM06]
+      isovane_category: static
+      isovane_title: "shell=True in subprocess"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Use shell=False and an argument list."
+    patterns:
+      - pattern: subprocess.$FN(..., shell=True, ...)
+
+  - id: isovane.agent.os-system
+    languages: [python]
+    severity: ERROR
+    message: "os.system runs a shell command (ASI05)."
+    metadata:
+      owasp: [ASI05, LLM06]
+      isovane_category: static
+      isovane_title: "os.system shell execution"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Replace os.system with subprocess and gated tools."
+    pattern: os.system(...)
+
+  - id: isovane.agent.eval-exec
+    languages: [python]
+    severity: ERROR
+    message: "eval/exec in agent code is excessive agency (ASI05)."
+    metadata:
+      owasp: [ASI05, LLM06]
+      isovane_category: static
+      isovane_title: "Dynamic eval/exec"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Remove eval/exec; route through gated typed handlers."
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+
+  - id: isovane.agent.js-eval
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "eval() in agent/tool code enables unexpected execution (ASI05)."
+    metadata:
+      owasp: [ASI05, LLM06]
+      isovane_category: static
+      isovane_title: "JavaScript eval"
+      isovane_fix_kind: code
+      isovane_fix_summary: "Remove eval; use typed parsers instead."
+    pattern: eval(...)
+
+  - id: isovane.agent.wildcard-permissions
+    languages: [json, yaml]
+    severity: WARNING
+    message: "Wildcard tool permissions ('*') enable privilege abuse (ASI03)."
+    metadata:
+      owasp: [ASI03]
+      isovane_category: static
+      isovane_title: "Wildcard tool permissions"
+      isovane_fix_kind: schema
+      isovane_fix_summary: "Replace * with an explicit allow-list."
+    pattern-regex: '["'']permissions["'']\s*:\s*["'']\*["'']'
+
+  - id: isovane.agent.mcp-unpinned-runner
+    languages: [json, yaml]
+    severity: WARNING
+    message: "MCP config launches npx/uvx without a clear pin — supply-chain risk (LLM03/ASI04)."
+    metadata:
+      owasp: [LLM03, ASI04]
+      isovane_category: static
+      isovane_title: "MCP server may be unpinned"
+      isovane_fix_kind: schema
+      isovane_fix_summary: "Pin MCP package versions and verify signatures."
+    patterns:
+      - pattern-regex: '"mcpServers"\s*:'
+      - pattern-either:
+          - pattern-regex: \bnpx\b
+          - pattern-regex: \buvx\b

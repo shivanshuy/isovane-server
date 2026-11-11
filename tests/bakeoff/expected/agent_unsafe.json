@@ -1,0 +1,15 @@
+{
+  "fixture": "agent_unsafe",
+  "titles_any_of": [
+    "User input concatenated into system prompt",
+    "User-tainted value reaches system prompt constructor",
+    "Unbounded agent loop around LLM call",
+    "LLM client missing max_tokens bound",
+    "shell=True",
+    "Shell"
+  ],
+  "must_match_substrings": [
+    "system",
+    "shell"
+  ]
+}

@@ -1,0 +1,51 @@
+name: isovane-scan
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  agent-static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install isovane-server
+        run: |
+          python -m pip install -U pip
+          pip install poetry
+          poetry install --no-interaction --no-ansi
+
+      - name: Architecture + hunt goldens
+        run: |
+          poetry run pytest tests/test_phase_abc.py tests/test_plantuml_board.py tests/test_architecture_graph.py tests/test_langgraph_inventory.py tests/test_bakeoff.py tests/test_mcp_skills.py tests/test_ast_taint.py -q --tb=short
+
+      - name: Bake-off score (≥5 fixtures)
+        run: |
+          poetry run python scripts/bakeoff_score.py
+
+      - name: Bake-off compare method (LLMArmor optional)
+        run: |
+          poetry run python scripts/bakeoff_compare_llmarmor.py
+
+      - name: Scan repository
+        env:
+          # Registry pack needs network; disable in air-gapped forks via repo var if needed.
+          ISOVANE_SEMGREP_UPSTREAM: "1"
+        run: |
+          poetry run isovane-scan . --sarif isovane.sarif --fail-on high
+
+      - name: Upload SARIF + bake-off score
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: isovane-sarif
+          path: |
+            isovane.sarif
+            tests/bakeoff/last_score.json
+            tests/bakeoff/last_compare.json

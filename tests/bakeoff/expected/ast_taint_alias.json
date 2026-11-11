@@ -1,0 +1,4 @@
+{
+  "fixture": "ast_taint_alias",
+  "must_match_substrings": ["taint", "system"]
+}

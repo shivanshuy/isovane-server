@@ -1,0 +1,6 @@
+{
+  "fixture": "langgraph_hitl_gap",
+  "must_match_substrings": ["agent"],
+  "inventory_must_have_labels": ["intake", "agent", "tools"],
+  "inventory_must_have_edge_kinds": ["langgraph", "conditional"]
+}

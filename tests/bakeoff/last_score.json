@@ -1,0 +1,176 @@
+[
+  {
+    "fixture": "agent_unsafe",
+    "findings": 13,
+    "titles": [
+      "Missing PII / disclosure bounds",
+      "Missing PII / disclosure bounds",
+      "Missing PII / disclosure bounds",
+      "System prompt built in Python",
+      "User input concatenated into system prompt",
+      "LLM client missing max_tokens bound",
+      "Tools mentioned without HITL",
+      "shell=True in subprocess",
+      "Tools mentioned without HITL",
+      "Missing PII / disclosure bounds",
+      "Tools mentioned without HITL",
+      "System prompt self-disclosure risk",
+      "User-tainted value reaches system prompt constructor"
+    ],
+    "substring_hits": [
+      "system",
+      "shell"
+    ],
+    "finding_recall": 1.0,
+    "inventory_ok": null,
+    "inventory": null,
+    "recall": 1.0
+  },
+  {
+    "fixture": "ast_taint_alias",
+    "findings": 9,
+    "titles": [
+      "Missing PII / disclosure bounds",
+      "Missing PII / disclosure bounds",
+      "Missing PII / disclosure bounds",
+      "System prompt built in Python",
+      "User input concatenated into system prompt",
+      "Missing PII / disclosure bounds",
+      "System prompt built in Python",
+      "Missing PII / disclosure bounds",
+      "User-tainted value reaches system prompt constructor"
+    ],
+    "substring_hits": [
+      "taint",
+      "system"
+    ],
+    "finding_recall": 1.0,
+    "inventory_ok": null,
+    "inventory": null,
+    "recall": 1.0
+  },
+  {
+    "fixture": "eval_exec",
+    "findings": 1,
+    "titles": [
+      "Dynamic eval/exec"
+    ],
+    "substring_hits": [
+      "eval"
+    ],
+    "finding_recall": 1.0,
+    "inventory_ok": null,
+    "inventory": null,
+    "recall": 1.0
+  },
+  {
+    "fixture": "langgraph_hitl_gap",
+    "findings": 0,
+    "titles": [],
+    "substring_hits": [],
+    "finding_recall": 0.0,
+    "inventory_ok": true,
+    "inventory": {
+      "labels": [
+        "END",
+        "START",
+        "agent",
+        "intake",
+        "interrupt / human approval",
+        "tools"
+      ],
+      "edge_kinds": [
+        "conditional",
+        "langgraph"
+      ],
+      "missing_labels": [],
+      "missing_kinds": []
+    },
+    "recall": 0.5
+  },
+  {
+    "fixture": "mcp_remote_auth",
+    "findings": 1,
+    "titles": [
+      "Remote MCP endpoint without auth hint"
+    ],
+    "substring_hits": [
+      "remote",
+      "auth"
+    ],
+    "finding_recall": 1.0,
+    "inventory_ok": null,
+    "inventory": null,
+    "recall": 1.0
+  },
+  {
+    "fixture": "mcp_unpinned",
+    "findings": 1,
+    "titles": [
+      "Unpinned MCP server runner"
+    ],
+    "substring_hits": [
+      "mcp",
+      "pin"
+    ],
+    "finding_recall": 1.0,
+    "inventory_ok": null,
+    "inventory": null,
+    "recall": 1.0
+  },
+  {
+    "fixture": "mcp_wildcard_tools",
+    "findings": 1,
+    "titles": [
+      "Wildcard MCP / tool permissions"
+    ],
+    "substring_hits": [
+      "wildcard",
+      "tool"
+    ],
+    "finding_recall": 1.0,
+    "inventory_ok": null,
+    "inventory": null,
+    "recall": 1.0
+  },
+  {
+    "fixture": "prompt_jailbreak",
+    "findings": 9,
+    "titles": [
+      "Missing PII / disclosure bounds",
+      "Missing PII / disclosure bounds",
+      "Jailbreak-inviting phrasing",
+      "Jailbreak-style instruction in source string",
+      "Tools mentioned without HITL",
+      "Tools mentioned without HITL",
+      "Jailbreak-inviting phrasing",
+      "Missing PII / disclosure bounds",
+      "Tools mentioned without HITL"
+    ],
+    "substring_hits": [
+      "jailbreak"
+    ],
+    "finding_recall": 0.5,
+    "inventory_ok": null,
+    "inventory": null,
+    "recall": 0.5
+  },
+  {
+    "fixture": "secret_hardcode",
+    "findings": 4,
+    "titles": [
+      "Hardcoded secret assignment",
+      "Hardcoded secret assignment",
+      "Secret: Secret Keyword",
+      "Secret: Secret Keyword"
+    ],
+    "substring_hits": [
+      "secret",
+      "key"
+    ],
+    "finding_recall": 1.0,
+    "inventory_ok": null,
+    "inventory": null,
+    "recall": 1.0
+  }
+]

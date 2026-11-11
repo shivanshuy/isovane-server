@@ -1,0 +1,4 @@
+{
+  "fixture": "mcp_wildcard_tools",
+  "must_match_substrings": ["wildcard", "tool"]
+}
