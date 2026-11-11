@@ -7,6 +7,7 @@ import logging
 import re
 from typing import Any
 
+from isovane_serve.http_client import post_json
 from isovane_serve.insights import insight_for
 from isovane_serve.model_config import (
     active_provider,
@@ -15,32 +16,23 @@ from isovane_serve.model_config import (
     openai_api_key,
 )
 from isovane_serve.models import Finding, FindingEvidence, SuggestedFix
+from isovane_serve.yaml_config import load_prompts
 
 log = logging.getLogger("isovane.risk_diagram")
-
-_RISK_PROMPT = """You are an AI-agent architecture security reviewer.
-
-You receive a Structurizr workspace (C4 model) — the same model the user edits on the board.
-Read model.people / model.softwareSystems / model.relationships.
-Isovane kinds are in tags and properties.kind: ui | agent | mcp | tool | llm | data | hitl | unknown
-A mermaid view and kind_guide are included for convenience.
-
-List concrete risks grounded only in that workspace.
-Focus on: missing HITL, MCP/supply-chain, wildcard tools, shell/exec, A2A without auth,
-PII/multi-cloud LLM egress, missing DLP/ZDR, trust-boundary gaps, observability sinks.
-
-Return ONLY valid JSON (no markdown fences):
-{"findings":[{"title":"...","summary":"...","severity":"critical|high|medium|low","region":"ui→agent","tags":["Workflow"],"owasp":["LLM06"],"checklist":["..."],"fix_summary":"..."}]}
-
-Rules:
-- Only findings supported by the workspace (do not invent boxes that are not present)
-- 1–8 findings max; skip noise
-- severity must be one of critical, high, medium, low
-"""
 
 
 class RiskDiagramError(RuntimeError):
     """LLM risk analyze failed."""
+
+
+def _risk_prompt() -> str:
+    text = load_prompts().get("architecture_risk") or ""
+    if not text:
+        raise RiskDiagramError(
+            "Missing architecture_risk prompt in config/prompts.yaml"
+        )
+    return text
+
 
 
 def analyze_risks_with_llm(
@@ -86,45 +78,47 @@ def analyze_risks_with_llm(
 
 
 def _chat(provider: str, model: str, diagram_json: str) -> str:
-    # Local import to reuse HTTP helper without circular imports at module load
-    from isovane_serve.vision_diagram import _post_json
+    content = f"{_risk_prompt()}\n\nSTRUCTURIZR_WORKSPACE:\n{diagram_json}"
+    try:
+        if provider == "openai":
+            key = openai_api_key()
+            if not key:
+                raise RiskDiagramError(
+                    "OpenAI selected but no API key for arc_image_analyze."
+                )
+            cfg = load_model_config()["openai"]
+            url = f"{cfg['base_url']}/chat/completions"
+            data = post_json(
+                url,
+                {
+                    "model": model,
+                    "temperature": 0.1,
+                    "messages": [{"role": "user", "content": content}],
+                },
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=int(cfg["timeout_seconds"]),
+            )
+            choices = data.get("choices") or []
+            if not choices:
+                raise RiskDiagramError("OpenAI returned no choices for risk analyze.")
+            message = (choices[0] or {}).get("message") or {}
+            return str(message.get("content") or "")
 
-    content = f"{_RISK_PROMPT}\n\nSTRUCTURIZR_WORKSPACE:\n{diagram_json}"
-    if provider == "openai":
-        key = openai_api_key()
-        if not key:
-            raise RiskDiagramError("OpenAI selected but no API key for arc_image_analyze.")
-        cfg = load_model_config()["openai"]
-        url = f"{cfg['base_url']}/chat/completions"
-        data = _post_json(
+        cfg = load_model_config()["ollama"]
+        url = f"{cfg['base_url']}/api/chat"
+        data = post_json(
             url,
             {
                 "model": model,
-                "temperature": 0.1,
+                "stream": False,
                 "messages": [{"role": "user", "content": content}],
+                "options": {"temperature": 0.1},
             },
-            headers={"Authorization": f"Bearer {key}"},
+            headers={},
             timeout=int(cfg["timeout_seconds"]),
         )
-        choices = data.get("choices") or []
-        if not choices:
-            raise RiskDiagramError("OpenAI returned no choices for risk analyze.")
-        message = (choices[0] or {}).get("message") or {}
-        return str(message.get("content") or "")
-
-    cfg = load_model_config()["ollama"]
-    url = f"{cfg['base_url']}/api/chat"
-    data = _post_json(
-        url,
-        {
-            "model": model,
-            "stream": False,
-            "messages": [{"role": "user", "content": content}],
-            "options": {"temperature": 0.1},
-        },
-        headers={},
-        timeout=int(cfg["timeout_seconds"]),
-    )
+    except RuntimeError as exc:
+        raise RiskDiagramError(str(exc)) from exc
     message = data.get("message") if isinstance(data.get("message"), dict) else {}
     return str(message.get("content") or data.get("response") or "")
 

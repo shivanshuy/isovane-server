@@ -9,9 +9,11 @@ from typing import Any, Literal
 
 import yaml
 
+from isovane_serve.paths import MODELS_YAML
+
 Provider = Literal["ollama", "openai"]
 
-_DEFAULT_PATH = Path(__file__).resolve().parents[2] / "config" / "models.yaml"
+_DEFAULT_PATH = MODELS_YAML
 
 
 def _as_provider(raw: str | None) -> Provider:

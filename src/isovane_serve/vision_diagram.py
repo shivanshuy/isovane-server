@@ -3,57 +3,35 @@
 from __future__ import annotations
 
 import base64
-import json
 import logging
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
+from isovane_serve.http_client import post_json
 from isovane_serve.model_config import (
     active_provider,
     arc_image_extract_model,
     load_model_config,
     openai_api_key,
 )
+from isovane_serve.yaml_config import load_prompts
 
 log = logging.getLogger("isovane.vision_diagram")
 
 VISION_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 
-_EXTRACT_PROMPT = """You are reconstructing a software / AI-agent architecture diagram from an image.
-
-Goal: recreate the diagram as faithfully as possible as boxes + arrows (labels, kinds, connections, rough layout).
-A human will then fix any extraction mistakes and later change the diagram to remediate security issues.
-
-Return ONLY this structure (no markdown fences):
-
-DIAGRAM:
-- One edge per line: A --> B
-- Name every box/cloud/cylinder/actor you can read (UI, agents, MCP, tools, DBs, LLM vendors, logs, HITL)
-- Preserve exact readable words: OpenAI, Anthropic, Bedrock, PII, HITL, MCP, shell, refund, email, RAG, vector, ZDR
-
-NODES:
-- bullet list of every component label (same wording as on the image when readable)
-
-TRUST / NOTES:
-- bullets only for what the drawing implies (missing HITL, multi-cloud, PII egress, untrusted ingress, wildcard tools, observability sinks)
-
-GRAPH_JSON:
-{"nodes":[{"id":"ui1","label":"Chat UI","kind":"ui","x":40,"y":40},{"id":"agent1","label":"Orchestrator agent","kind":"agent","x":220,"y":40}],"edges":[{"from":"ui1","to":"agent1","kind":"link"}]}
-
-Rules for GRAPH_JSON (highest priority):
-- recreate topology first: every visible box and every visible arrow
-- kind must be one of: ui, agent, mcp, tool, llm, data, hitl, unknown
-- ids: short stable tokens, no spaces
-- label: closest readable text from the image (do not invent brands that are not shown)
-- x,y: approximate left-to-right / top-to-bottom canvas coords in pixels (origin top-left, x+=180 per column, y+=96 per row)
-- if a label is blurry, still emit a best-effort node rather than dropping it
-"""
-
 
 class VisionDiagramError(RuntimeError):
     """Vision provider failed to extract diagram text."""
+
+
+def _extract_prompt() -> str:
+    text = load_prompts().get("vision_extract") or ""
+    if not text:
+        raise VisionDiagramError(
+            "Missing vision_extract prompt in config/prompts.yaml"
+        )
+    return text
 
 
 def mime_for_filename(filename: str) -> str:
@@ -104,31 +82,6 @@ def extract_diagram_text_from_image(
     }
 
 
-def _post_json(url: str, payload: dict[str, Any], *, headers: dict[str, str], timeout: int) -> dict[str, Any]:
-    body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={"Content-Type": "application/json", **headers},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
-            raw = resp.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:800]
-        raise VisionDiagramError(f"HTTP {exc.code} from {url}: {detail}") from exc
-    except urllib.error.URLError as exc:
-        raise VisionDiagramError(f"Could not reach {url}: {exc.reason}") from exc
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise VisionDiagramError(f"Non-JSON response from {url}") from exc
-    if not isinstance(data, dict):
-        raise VisionDiagramError(f"Unexpected JSON shape from {url}")
-    return data
-
-
 def _extract_ollama(image_b64: str, model: str) -> str:
     cfg = load_model_config()["ollama"]
     url = f"{cfg['base_url']}/api/chat"
@@ -138,12 +91,15 @@ def _extract_ollama(image_b64: str, model: str) -> str:
         "messages": [
             {
                 "role": "user",
-                "content": _EXTRACT_PROMPT,
+                "content": _extract_prompt(),
                 "images": [image_b64],
             }
         ],
     }
-    data = _post_json(url, payload, headers={}, timeout=int(cfg["timeout_seconds"]))
+    try:
+        data = post_json(url, payload, headers={}, timeout=int(cfg["timeout_seconds"]))
+    except RuntimeError as exc:
+        raise VisionDiagramError(str(exc)) from exc
     message = data.get("message") if isinstance(data.get("message"), dict) else {}
     content = message.get("content") or data.get("response") or ""
     return str(content)
@@ -163,7 +119,7 @@ def _extract_openai(image_b64: str, mime: str, model: str) -> str:
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": _EXTRACT_PROMPT},
+                    {"type": "text", "text": _extract_prompt()},
                     {
                         "type": "image_url",
                         "image_url": {"url": f"data:{mime};base64,{image_b64}"},
@@ -172,12 +128,15 @@ def _extract_openai(image_b64: str, mime: str, model: str) -> str:
             }
         ],
     }
-    data = _post_json(
-        url,
-        payload,
-        headers={"Authorization": f"Bearer {key}"},
-        timeout=int(cfg["timeout_seconds"]),
-    )
+    try:
+        data = post_json(
+            url,
+            payload,
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=int(cfg["timeout_seconds"]),
+        )
+    except RuntimeError as exc:
+        raise VisionDiagramError(str(exc)) from exc
     choices = data.get("choices") or []
     if not choices:
         raise VisionDiagramError("OpenAI returned no choices.")

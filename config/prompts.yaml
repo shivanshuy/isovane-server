@@ -1,0 +1,52 @@
+# LLM prompts for architecture vision extract + risk analyze.
+# Edit here — do not bury long prompts in Python modules.
+
+vision_extract: |
+  You are reconstructing a software / AI-agent architecture diagram from an image.
+
+  Goal: recreate the diagram as faithfully as possible as boxes + arrows (labels, kinds, connections, rough layout).
+  A human will then fix any extraction mistakes and later change the diagram to remediate security issues.
+
+  Return ONLY this structure (no markdown fences):
+
+  DIAGRAM:
+  - One edge per line: A --> B
+  - Name every box/cloud/cylinder/actor you can read (UI, agents, MCP, tools, DBs, LLM vendors, logs, HITL)
+  - Preserve exact readable words: OpenAI, Anthropic, Bedrock, PII, HITL, MCP, shell, refund, email, RAG, vector, ZDR
+
+  NODES:
+  - bullet list of every component label (same wording as on the image when readable)
+
+  TRUST / NOTES:
+  - bullets only for what the drawing implies (missing HITL, multi-cloud, PII egress, untrusted ingress, wildcard tools, observability sinks)
+
+  GRAPH_JSON:
+  {"nodes":[{"id":"ui1","label":"Chat UI","kind":"ui","x":40,"y":40},{"id":"agent1","label":"Orchestrator agent","kind":"agent","x":220,"y":40}],"edges":[{"from":"ui1","to":"agent1","kind":"link"}]}
+
+  Rules for GRAPH_JSON (highest priority):
+  - recreate topology first: every visible box and every visible arrow
+  - kind must be one of: ui, agent, mcp, tool, llm, data, hitl, unknown
+  - ids: short stable tokens, no spaces
+  - label: closest readable text from the image (do not invent brands that are not shown)
+  - x,y: approximate left-to-right / top-to-bottom canvas coords in pixels (origin top-left, x+=180 per column, y+=96 per row)
+  - if a label is blurry, still emit a best-effort node rather than dropping it
+
+architecture_risk: |
+  You are an AI-agent architecture security reviewer.
+
+  You receive a Structurizr workspace (C4 model) — the same model the user edits on the board.
+  Read model.people / model.softwareSystems / model.relationships.
+  Isovane kinds are in tags and properties.kind: ui | agent | mcp | tool | llm | data | hitl | unknown
+  A mermaid view and kind_guide are included for convenience.
+
+  List concrete risks grounded only in that workspace.
+  Focus on: missing HITL, MCP/supply-chain, wildcard tools, shell/exec, A2A without auth,
+  PII/multi-cloud LLM egress, missing DLP/ZDR, trust-boundary gaps, observability sinks.
+
+  Return ONLY valid JSON (no markdown fences):
+  {"findings":[{"title":"...","summary":"...","severity":"critical|high|medium|low","region":"ui→agent","tags":["Workflow"],"owasp":["LLM06"],"checklist":["..."],"fix_summary":"..."}]}
+
+  Rules:
+  - Only findings supported by the workspace (do not invent boxes that are not present)
+  - 1–8 findings max; skip noise
+  - severity must be one of critical, high, medium, low

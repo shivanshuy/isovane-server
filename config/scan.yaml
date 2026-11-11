@@ -1,0 +1,91 @@
+# Shared scan / inventory constants (edit here for maintenance).
+
+skip_dir_names:
+  - .git
+  - node_modules
+  - .venv
+  - dist
+  - build
+  - __pycache__
+  - .tox
+  - .mypy_cache
+  - .ruff_cache
+  - .pytest_cache
+
+mcp:
+  runners:
+    - npx
+    - npm
+    - pnpm
+    - pnpx
+    - bunx
+    - uvx
+    - yarn
+    - deno
+  auth_header_keys:
+    - authorization
+    - x-api-key
+    - x-auth-token
+    - api-key
+    - proxy-authorization
+  auth_field_keys:
+    - authorization
+    - auth
+    - token
+    - apikey
+    - api_key
+    - oauth
+    - bearer
+    - headers
+    - env
+
+ast_taint:
+  userish_names:
+    - user
+    - user_input
+    - user_text
+    - user_msg
+    - user_message
+    - query
+    - prompt
+    - question
+    - utterance
+    - raw_input
+    - client_input
+  request_roots:
+    - request
+    - req
+    - http_request
+  request_attrs:
+    - json
+    - form
+    - args
+    - data
+    - body
+    - values
+    - POST
+    - GET
+    - FILES
+    - query_params
+    - path_params
+  source_calls:
+    - input
+    - getpass
+    - getline
+    - raw_input
+  prompt_sinks:
+    - SystemMessage
+    - ChatPromptTemplate
+    - PromptTemplate
+    - SystemMessagePromptTemplate
+  tool_sinks:
+    - send
+    - send_email
+    - refund
+    - pay
+    - shell
+    - exec
+    - system
+    - popen
+    - check_output
+    - run

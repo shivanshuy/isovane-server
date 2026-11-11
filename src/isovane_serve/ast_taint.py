@@ -11,52 +11,11 @@ from pathlib import Path
 
 from isovane_serve.insights import insight_for
 from isovane_serve.models import Finding, FindingEvidence, SuggestedFix
+from isovane_serve.yaml_config import load_scan_settings, skip_dir_names
 
-_SKIP = {".git", "node_modules", ".venv", "dist", "build", "__pycache__", ".tox"}
 
-# Names that *seed* taint when they are function parameters (or LHS of source assign).
-_USERISH_NAMES = {
-    "user",
-    "user_input",
-    "user_text",
-    "user_msg",
-    "user_message",
-    "query",
-    "prompt",
-    "question",
-    "utterance",
-    "raw_input",
-    "client_input",
-}
-
-_REQUEST_ROOTS = {"request", "req", "http_request"}
-_REQUEST_ATTRS = {
-    "json",
-    "form",
-    "args",
-    "data",
-    "body",
-    "values",
-    "POST",
-    "GET",
-    "FILES",
-    "query_params",
-    "path_params",
-}
-_SOURCE_CALLS = {"input", "getpass", "getline", "raw_input"}
-_PROMPT_SINKS = {"SystemMessage", "ChatPromptTemplate", "PromptTemplate", "SystemMessagePromptTemplate"}
-_TOOL_SINKS = {
-    "send",
-    "send_email",
-    "refund",
-    "pay",
-    "shell",
-    "exec",
-    "system",
-    "popen",
-    "check_output",
-    "run",  # only when shell-ish — narrowed in visitor
-}
+def _ast_cfg() -> dict:
+    return load_scan_settings()["ast_taint"]
 
 
 def scan_ast_taint(workspace_id: str, root: Path) -> list[Finding]:
@@ -64,7 +23,7 @@ def scan_ast_taint(workspace_id: str, root: Path) -> list[Finding]:
     if not root.exists():
         return findings
     for path in root.rglob("*.py"):
-        if any(part in _SKIP for part in path.parts):
+        if any(part in skip_dir_names() for part in path.parts):
             continue
         try:
             source = path.read_text(encoding="utf-8", errors="ignore")
@@ -209,7 +168,7 @@ def _target_names(target: ast.expr) -> list[str]:
 
 def _is_userish(name: str) -> bool:
     n = name.lower()
-    if n in _USERISH_NAMES:
+    if n in _ast_cfg()["userish_names"]:
         return True
     return n.endswith(("_input", "_text", "_msg", "_message", "_query", "_prompt"))
 
@@ -228,9 +187,10 @@ def _is_clean_literal(node: ast.AST) -> bool:
 
 
 def _is_source_expr(node: ast.AST) -> bool:
+    cfg = _ast_cfg()
     if isinstance(node, ast.Call):
         name = _call_name(node.func)
-        if name in _SOURCE_CALLS:
+        if name in cfg["source_calls"]:
             return True
         # request.json(), request.get_json()
         if name in {"json", "get_json", "get_data", "form"} and _attr_root_is_request(
@@ -245,7 +205,7 @@ def _is_source_expr(node: ast.AST) -> bool:
         if name in {"recv", "receive", "receive_text", "receive_json"}:
             return True
     if isinstance(node, ast.Attribute):
-        if node.attr in _REQUEST_ATTRS and _attr_root_name(node) in _REQUEST_ROOTS:
+        if node.attr in cfg["request_attrs"] and _attr_root_name(node) in cfg["request_roots"]:
             return True
         if isinstance(node.value, ast.Name) and node.value.id == "sys" and node.attr == "argv":
             return True
@@ -267,15 +227,16 @@ def _attr_root_name(node: ast.AST) -> str | None:
 
 def _attr_root_is_request(func: ast.AST) -> bool:
     if isinstance(func, ast.Attribute):
-        return _attr_root_name(func) in _REQUEST_ROOTS
+        return _attr_root_name(func) in _ast_cfg()["request_roots"]
     return False
 
 
 def _expr_is_request_attr(node: ast.AST | None) -> bool:
     if node is None:
         return False
+    cfg = _ast_cfg()
     if isinstance(node, ast.Attribute):
-        return node.attr in _REQUEST_ATTRS and _attr_root_name(node) in _REQUEST_ROOTS
+        return node.attr in cfg["request_attrs"] and _attr_root_name(node) in cfg["request_roots"]
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
         return _expr_is_request_attr(node.func)
     return False
@@ -289,7 +250,9 @@ def _expr_tainted(node: ast.AST | None, tainted: set[str]) -> bool:
     if isinstance(node, ast.Name):
         return node.id in tainted
     if isinstance(node, ast.Attribute):
-        if node.attr.lower() in _USERISH_NAMES and _attr_root_name(node) in tainted | _REQUEST_ROOTS:
+        cfg = _ast_cfg()
+        roots = tainted | cfg["request_roots"]
+        if node.attr.lower() in cfg["userish_names"] and _attr_root_name(node) in roots:
             return True
         return _expr_tainted(node.value, tainted)
     if isinstance(node, ast.Subscript):
@@ -332,7 +295,8 @@ def _check_call(
     name = _call_name(node.func)
     full = _call_qualname(node.func)
 
-    if name in _PROMPT_SINKS or full.endswith(".SystemMessage"):
+    cfg = _ast_cfg()
+    if name in cfg["prompt_sinks"] or full.endswith(".SystemMessage"):
         for arg in list(node.args) + [kw.value for kw in node.keywords]:
             if _expr_tainted(arg, tainted):
                 out.append(
@@ -353,7 +317,7 @@ def _check_call(
         return out
 
     # Consequential tool sinks — exclude generic langchain `.run` unless shell keyword
-    toolish = name.lower() in _TOOL_SINKS or name.lower() in {
+    toolish = name.lower() in cfg["tool_sinks"] or name.lower() in {
         "send_email",
         "sendmail",
     }

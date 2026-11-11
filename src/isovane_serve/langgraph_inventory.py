@@ -6,7 +6,8 @@ import ast
 from pathlib import Path
 from typing import Any
 
-_SKIP = {".git", "node_modules", ".venv", "dist", "build", "__pycache__", ".tox"}
+from isovane_serve.yaml_config import skip_dir_names
+
 _GRAPH_METHODS = {
     "add_node",
     "add_edge",
@@ -30,7 +31,7 @@ def langgraph_graphs_from_tree(root: Path) -> dict[str, Any]:
         return {"nodes": [], "edges": [], "graphs": [], "source": "langgraph"}
 
     for path in root.rglob("*.py"):
-        if any(part in _SKIP for part in path.parts):
+        if any(part in skip_dir_names() for part in path.parts):
             continue
         try:
             source = path.read_text(encoding="utf-8", errors="ignore")

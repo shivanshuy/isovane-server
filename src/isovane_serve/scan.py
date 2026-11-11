@@ -29,6 +29,7 @@ from isovane_serve.copy import (
 )
 from isovane_serve.insights import insight_for
 from isovane_serve.models import Finding, FindingEvidence, SuggestedFix, utc_now
+from isovane_serve.paths import AGENT_RULES_DIR
 from isovane_serve.pii import detect_pii
 from isovane_serve.promptlint import lint_paths, lint_text
 from isovane_serve.semgrep_map import classify_semgrep_hit
@@ -41,7 +42,7 @@ _EVAL = re.compile(r"\beval\s*\(")
 _EXEC = re.compile(r"\bexec\s*\(")
 _BROAD_PERMS = re.compile(r'["\']permissions["\']\s*:\s*["\']\*["\']')
 
-_RULES_DIR = Path(__file__).resolve().parents[2] / "rules" / "agent"
+_RULES_DIR = AGENT_RULES_DIR
 _UPSTREAM_CONFIGS = ("p/ai-best-practices",)
 _SEMGREP_SEVERITY = {
     "ERROR": "high",

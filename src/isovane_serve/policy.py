@@ -9,7 +9,9 @@ import yaml
 
 from isovane_serve.models import PolicyConfig
 
-_DEFAULT_PATH = Path(__file__).resolve().parents[2] / "policies" / "default.yaml"
+from isovane_serve.paths import DEFAULT_POLICY_YAML
+
+_DEFAULT_PATH = DEFAULT_POLICY_YAML
 _cache: dict[str, PolicyConfig] = {}
 
 

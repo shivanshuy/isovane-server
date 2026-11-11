@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-_SKIP = {".git", "node_modules", ".venv", "dist", "build", "__pycache__", ".tox"}
+from isovane_serve.yaml_config import skip_dir_names
 
 _PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [
     ("agent", "LangGraph create_react_agent", re.compile(r"\bcreate_react_agent\s*\(")),
@@ -38,7 +38,7 @@ def inventory_from_tree(root: Path) -> dict[str, Any]:
     for path in root.rglob("*"):
         if not path.is_file():
             continue
-        if any(part in _SKIP for part in path.parts):
+        if any(part in skip_dir_names() for part in path.parts):
             continue
         if path.suffix.lower() not in {".py", ".ts", ".tsx", ".js", ".jsx", ".json", ".yml", ".yaml"}:
             continue

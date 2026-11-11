@@ -13,37 +13,13 @@ from typing import Any
 
 from isovane_serve.insights import insight_for
 from isovane_serve.models import Finding, FindingEvidence, SuggestedFix
+from isovane_serve.yaml_config import load_scan_settings, skip_dir_names
 
-_SKIP = {".git", "node_modules", ".venv", "dist", "build", "__pycache__", ".tox"}
-_RUNNERS = {
-    "npx",
-    "npm",
-    "pnpm",
-    "pnpx",
-    "bunx",
-    "uvx",
-    "yarn",
-    "deno",
-}
-_AUTH_HEADER_KEYS = {
-    "authorization",
-    "x-api-key",
-    "x-auth-token",
-    "api-key",
-    "proxy-authorization",
-}
-_AUTH_FIELD_KEYS = {
-    "authorization",
-    "auth",
-    "token",
-    "apikey",
-    "api_key",
-    "oauth",
-    "bearer",
-    "headers",
-    "env",
-}
 _PIPE_SHELL = re.compile(r"curl\s+[^\n|]*\|\s*(?:ba)?sh", re.I)
+
+
+def _mcp_cfg() -> dict[str, Any]:
+    return load_scan_settings()["mcp"]
 
 
 def scan_mcp_and_skills(workspace_id: str, root: Path) -> list[Finding]:
@@ -54,7 +30,7 @@ def scan_mcp_and_skills(workspace_id: str, root: Path) -> list[Finding]:
     for path in root.rglob("*"):
         if not path.is_file():
             continue
-        if any(part in _SKIP for part in path.parts):
+        if any(part in skip_dir_names() for part in path.parts):
             continue
         name = path.name.lower()
         rel = str(path.relative_to(root)).replace("\\", "/")
@@ -140,8 +116,9 @@ def _check_pin(
         args = [args]
     args_s = [str(a) for a in args]
     runner = Path(command).name.lower() if command else ""
+    runners = _mcp_cfg()["runners"]
     # npx/uvx style, or bare package in command
-    if runner in _RUNNERS or runner.endswith("npx") or runner.endswith("uvx"):
+    if runner in runners or runner.endswith("npx") or runner.endswith("uvx"):
         if _runner_args_unpinned(runner, args_s):
             return [
                 _finding(
@@ -174,7 +151,7 @@ def _runner_args_unpinned(runner: str, args: list[str]) -> bool:
     packages = _package_specs(args)
     if not packages:
         # uvx/npx with no package-looking arg is odd; treat as unpinned if runner known
-        return runner in {"npx", "uvx", "bunx", "pnpx"}
+        return runner in _mcp_cfg()["runners"]
     return any(_spec_unpinned(spec) for spec in packages)
 
 
@@ -272,14 +249,16 @@ def _is_loopback(url: str) -> bool:
 
 
 def _cfg_has_auth(cfg: dict[str, Any]) -> bool:
+    auth_fields = _mcp_cfg()["auth_field_keys"]
     for key, value in cfg.items():
         lk = key.lower().replace("-", "_")
-        if lk in _AUTH_FIELD_KEYS or lk in {"api_key", "access_token", "auth_token"}:
+        if lk in auth_fields or lk in {"api_key", "access_token", "auth_token"}:
             if _value_suggests_auth(value):
                 return True
+        auth_headers = _mcp_cfg()["auth_header_keys"]
         if lk == "headers" and isinstance(value, dict):
             for hk, hv in value.items():
-                if hk.lower() in _AUTH_HEADER_KEYS and hv not in (None, "", {}):
+                if hk.lower() in auth_headers and hv not in (None, "", {}):
                     return True
                 if "token" in hk.lower() or "auth" in hk.lower():
                     return True
@@ -296,8 +275,9 @@ def _value_suggests_auth(value: Any) -> bool:
     if value in (None, "", {}, []):
         return False
     if isinstance(value, dict):
+        auth_headers = _mcp_cfg()["auth_header_keys"]
         return _cfg_has_auth(value) or any(
-            k.lower() in _AUTH_HEADER_KEYS or "token" in k.lower() or "auth" in k.lower()
+            k.lower() in auth_headers or "token" in k.lower() or "auth" in k.lower()
             for k in value
         )
     return True
