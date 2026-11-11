@@ -33,9 +33,7 @@ from isovane_serve.paths import AGENT_RULES_DIR
 from isovane_serve.pii import detect_pii
 from isovane_serve.promptlint import lint_paths, lint_text
 from isovane_serve.semgrep_map import classify_semgrep_hit
-
-_CODE_EXTS = {".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
-_TEXT_EXTS = _CODE_EXTS | {".md", ".txt", ".yaml", ".yml", ".json", ".env", ".toml"}
+from isovane_serve.yaml_config import load_scan_settings
 
 _SHELL_TRUE = re.compile(r"subprocess\.(?:call|run|Popen)\([^)]*shell\s*=\s*True")
 _EVAL = re.compile(r"\beval\s*\(")
@@ -43,7 +41,26 @@ _EXEC = re.compile(r"\bexec\s*\(")
 _BROAD_PERMS = re.compile(r'["\']permissions["\']\s*:\s*["\']\*["\']')
 
 _RULES_DIR = AGENT_RULES_DIR
-_UPSTREAM_CONFIGS = ("p/ai-best-practices",)
+
+
+def _code_exts() -> set[str]:
+    return load_scan_settings()["code_exts"] or {
+        ".py",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+    }
+
+
+def _text_exts() -> set[str]:
+    return load_scan_settings()["text_exts"] or (_code_exts()() | {".md", ".txt", ".yaml", ".yml", ".json", ".env", ".toml"})
+
+
+def _upstream_configs() -> tuple[str, ...]:
+    return tuple(load_scan_settings()["semgrep_upstream"] or ["p/ai-best-practices"])
 _SEMGREP_SEVERITY = {
     "ERROR": "high",
     "WARNING": "medium",
@@ -164,7 +181,7 @@ def _semgrep_configs() -> list[str]:
     if _RULES_DIR.exists():
         configs.append(str(_RULES_DIR))
     if _upstream_enabled():
-        configs.extend(_UPSTREAM_CONFIGS)
+        configs.extend(_upstream_configs())
     return configs
 
 
@@ -318,7 +335,7 @@ def _semgrep_results_to_findings(
 def _scan_tree_fallback(workspace_id: str, root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for path in root.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in _TEXT_EXTS:
+        if not path.is_file() or path.suffix.lower() not in _text_exts():
             continue
         if any(part in {".git", "node_modules", ".venv", "dist", "build"} for part in path.parts):
             continue
@@ -419,7 +436,7 @@ def _static_file_fallback(workspace_id: str, path: str, text: str) -> list[Findi
 def _pii_tree(workspace_id: str, root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for path in root.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in _TEXT_EXTS:
+        if not path.is_file() or path.suffix.lower() not in _text_exts():
             continue
         if any(part in {".git", "node_modules", ".venv", "dist", "build"} for part in path.parts):
             continue
@@ -555,7 +572,7 @@ def _detect_secrets_scan(workspace_id: str, root: Path) -> list[Finding]:
     try:
         with default_settings():
             for path in root.rglob("*"):
-                if not path.is_file() or path.suffix.lower() not in _TEXT_EXTS:
+                if not path.is_file() or path.suffix.lower() not in _text_exts():
                     continue
                 if any(p in {".git", "node_modules", ".venv"} for p in path.parts):
                     continue
@@ -601,7 +618,7 @@ def _heuristic_secrets(workspace_id: str, root: Path) -> list[Finding]:
         r"(?i)(api[_-]?key|secret|token)\s*[:=]\s*['\"][A-Za-z0-9_\-]{16,}['\"]"
     )
     for path in root.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in _TEXT_EXTS:
+        if not path.is_file() or path.suffix.lower() not in _text_exts():
             continue
         if any(p in {".git", "node_modules", ".venv"} for p in path.parts):
             continue

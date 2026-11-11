@@ -1,0 +1,21 @@
+# Node kind classification tokens (substring match on labels).
+# Order matters: first matching kind wins in kind_for_label().
+
+kinds:
+  - id: ui
+    tokens: [ui, frontend, chat, webapp, web app, console, dashboard, slack, teams, whatsapp, input, intake]
+  - id: mcp
+    tokens: [mcp, mcp server, mcp_server, model context protocol]
+  - id: hitl
+    tokens: [hitl, human, approval, approve, confirm, reviewer, moderation, interrupt, review]
+  - id: llm
+    tokens: [openai, anthropic, claude, llm, gpt, bedrock, model]
+  - id: data
+    tokens: [db, database, postgres, mongo, redis, s3, bucket, langsmith, traces, logs, crm, pii, store, memory, retriev, rag]
+  - id: agent
+    tokens: [agent, orchestrator, orchestrat, supervisor, worker, crew, graph, langgraph, autogen, crewai]
+  - id: tool
+    tokens: [tool, browser, search, shell, exec, email, gmail, pay, refund, calendar, db tool]
+
+# Workflow diagram markers (not node kinds)
+a2a_tokens: [a2a, agent-to-agent, multi-agent, handoff, delegate, swarm]

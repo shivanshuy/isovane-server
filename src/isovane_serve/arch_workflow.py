@@ -5,14 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 from isovane_serve.insights import insight_for
+from isovane_serve.kinds import a2a_tokens, kind_for_label, kind_tokens
 from isovane_serve.models import Finding, FindingEvidence, SuggestedFix
 
-_UI = ("ui", "frontend", "chat", "webapp", "web app", "console", "dashboard", "slack", "teams", "whatsapp")
-_AGENT = ("agent", "orchestrator", "supervisor", "worker", "crew", "graph", "langgraph", "autogen", "crewai")
-_MCP = ("mcp", "mcp server", "mcp_server", "model context protocol")
-_TOOL = ("tool", "browser", "search", "shell", "exec", "email", "gmail", "pay", "refund", "calendar", "db tool")
-_HITL = ("hitl", "human", "approval", "confirm", "reviewer", "moderation")
-_A2A = ("a2a", "agent-to-agent", "multi-agent", "handoff", "delegate", "swarm")
+__all__ = [
+    "analyze_workflow",
+    "classify_nodes",
+    "inventory_summary",
+    "kind_for_label",
+]
 
 
 def classify_nodes(text: str, raw_nodes: list[str]) -> list[dict[str, Any]]:
@@ -23,14 +24,18 @@ def classify_nodes(text: str, raw_nodes: list[str]) -> list[dict[str, Any]]:
     cleaned = [n.strip() for n in raw_nodes if n and str(n).strip()]
     labels = list(dict.fromkeys(cleaned)) or list(dict.fromkeys(_token_labels(lower)))
     for label in labels:
-        kind = _kind_for(label.lower())
+        kind = kind_for_label(label.lower())
         if kind == "unknown" and len(label) < 2:
             continue
         inventory.append({"id": label, "kind": kind, "label": label})
     # Ensure diagram-level kinds even without explicit node names
-    if any(t in lower for t in _MCP) and not any(n["kind"] == "mcp" for n in inventory):
+    if any(t in lower for t in kind_tokens("mcp")) and not any(
+        n["kind"] == "mcp" for n in inventory
+    ):
         inventory.append({"id": "MCP", "kind": "mcp", "label": "MCP servers"})
-    if any(t in lower for t in _UI) and not any(n["kind"] == "ui" for n in inventory):
+    if any(t in lower for t in kind_tokens("ui")) and not any(
+        n["kind"] == "ui" for n in inventory
+    ):
         inventory.append({"id": "UI", "kind": "ui", "label": "User interface"})
     return inventory
 
@@ -47,12 +52,14 @@ def analyze_workflow(
     kinds = {n["kind"] for n in inv}
     findings: list[Finding] = []
 
-    has_ui = "ui" in kinds or any(t in lower for t in _UI)
-    has_agent = "agent" in kinds or any(t in lower for t in _AGENT)
-    has_mcp = "mcp" in kinds or any(t in lower for t in _MCP)
-    has_tool = "tool" in kinds or any(t in lower for t in _TOOL)
-    has_hitl = "hitl" in kinds or any(t in lower for t in _HITL)
-    has_a2a = any(t in lower for t in _A2A) or sum(1 for n in inv if n["kind"] == "agent") >= 2
+    has_ui = "ui" in kinds or any(t in lower for t in kind_tokens("ui"))
+    has_agent = "agent" in kinds or any(t in lower for t in kind_tokens("agent"))
+    has_mcp = "mcp" in kinds or any(t in lower for t in kind_tokens("mcp"))
+    has_tool = "tool" in kinds or any(t in lower for t in kind_tokens("tool"))
+    has_hitl = "hitl" in kinds or any(t in lower for t in kind_tokens("hitl"))
+    has_a2a = any(t in lower for t in a2a_tokens()) or sum(
+        1 for n in inv if n["kind"] == "agent"
+    ) >= 2
     has_auth = any(t in lower for t in ("auth", "oauth", "mtls", "jwt", "signed", "acl", "rbac"))
     has_shell = any(t in lower for t in ("shell", "exec", "bash", "powershell", "code interpreter"))
     wildcard = "*" in text or "all tools" in lower or "tools=*" in lower or "permissions: *" in lower
@@ -267,56 +274,12 @@ def inventory_summary(
 
 def _token_labels(lower: str) -> list[str]:
     labels: list[str] = []
-    for group, kind in (
-        (_UI, "ui"),
-        (_AGENT, "agent"),
-        (_MCP, "mcp"),
-        (_TOOL, "tool"),
-        (_HITL, "hitl"),
-    ):
-        for token in group:
+    for kid in ("ui", "agent", "mcp", "tool", "hitl"):
+        for token in kind_tokens(kid):
             if token in lower:
                 labels.append(token)
                 break
     return labels
-
-
-def kind_for_label(label: str) -> str:
-    lower = (label or "").lower()
-    if any(t in lower for t in _UI):
-        return "ui"
-    if any(t in lower for t in _MCP):
-        return "mcp"
-    if any(t in lower for t in _HITL):
-        return "hitl"
-    if any(t in lower for t in ("openai", "anthropic", "claude", "llm", "gpt", "bedrock", "model")):
-        return "llm"
-    if any(
-        t in lower
-        for t in (
-            "db",
-            "database",
-            "postgres",
-            "mongo",
-            "redis",
-            "s3",
-            "bucket",
-            "langsmith",
-            "traces",
-            "logs",
-            "crm",
-        )
-    ):
-        return "data"
-    if any(t in lower for t in _AGENT):
-        return "agent"
-    if any(t in lower for t in _TOOL):
-        return "tool"
-    return "unknown"
-
-
-def _kind_for(label: str) -> str:
-    return kind_for_label(label)
 
 
 def _finding(

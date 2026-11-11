@@ -249,32 +249,3 @@ def _to_mermaid(nodes: list[dict[str, Any]], edges: list[dict[str, str]]) -> str
     return "\n".join(lines)
 
 
-def board_to_analysis_text(board: dict[str, Any]) -> str:
-    """Serialize an edited board back into analyzer text."""
-    nodes = board.get("nodes") or []
-    edges = board.get("edges") or []
-    lines = ["DIAGRAM:"]
-    id_label = {str(n.get("id")): str(n.get("label") or n.get("id")) for n in nodes}
-    for edge in edges:
-        frm = id_label.get(str(edge.get("from")), str(edge.get("from")))
-        to = id_label.get(str(edge.get("to")), str(edge.get("to")))
-        lines.append(f"{frm} --> {to}")
-    lines.append("NODES:")
-    for node in nodes:
-        lines.append(f"- {node.get('label') or node.get('id')} ({node.get('kind') or 'unknown'})")
-    payload = {
-        "nodes": [
-            {
-                "id": n.get("id"),
-                "label": n.get("label"),
-                "kind": n.get("kind"),
-                "x": n.get("x"),
-                "y": n.get("y"),
-            }
-            for n in nodes
-        ],
-        "edges": [{"from": e.get("from"), "to": e.get("to"), "kind": e.get("kind") or "link"} for e in edges],
-    }
-    lines.append("GRAPH_JSON:")
-    lines.append(json.dumps(payload))
-    return "\n".join(lines)

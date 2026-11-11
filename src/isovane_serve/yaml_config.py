@@ -41,8 +41,14 @@ def load_scan_settings(path: str | None = None) -> dict[str, Any]:
     skip = data.get("skip_dir_names") or []
     mcp = data.get("mcp") or {}
     ast = data.get("ast_taint") or {}
+    code_exts = {str(x) for x in (data.get("code_exts") or [])}
+    text_exts = {str(x) for x in (data.get("text_exts") or [])}
+    upstream = [str(x) for x in (data.get("semgrep_upstream") or []) if x]
     return {
         "skip_dir_names": {str(x) for x in skip},
+        "code_exts": code_exts,
+        "text_exts": text_exts,
+        "semgrep_upstream": upstream,
         "mcp": {
             "runners": {str(x).lower() for x in (mcp.get("runners") or [])},
             "auth_header_keys": {

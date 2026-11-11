@@ -254,19 +254,10 @@ def _const_str(node: ast.AST | None) -> str | None:
 
 
 def _kind_for_node(name: str) -> str:
+    from isovane_serve.kinds import kind_for_label
+
     lower = name.lower()
-    if any(t in lower for t in ("hitl", "human", "approve", "interrupt", "review")):
-        return "hitl"
-    if any(t in lower for t in ("tool", "search", "shell", "email", "refund", "browser")):
-        return "tool"
-    if "mcp" in lower:
-        return "mcp"
-    if any(t in lower for t in ("llm", "model", "chat", "openai", "anthropic")):
-        return "llm"
-    if any(t in lower for t in ("ui", "input", "intake", "frontend")):
-        return "ui"
-    if any(t in lower for t in ("data", "db", "store", "memory", "retriev", "rag")):
-        return "data"
     if lower in {"start", "end"}:
         return "unknown"
-    return "agent"
+    # Graph nodes default to agent when unlabeled (LangGraph convention).
+    return kind_for_label(name, default="agent")

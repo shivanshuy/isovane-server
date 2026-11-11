@@ -107,22 +107,9 @@ def _slug(label: str) -> str:
 
 
 def _kind(label: str) -> str:
-    lower = label.lower()
-    if any(t in lower for t in ("ui", "chat", "frontend", "console")):
-        return "ui"
-    if any(t in lower for t in ("mcp",)):
-        return "mcp"
-    if any(t in lower for t in ("hitl", "approval", "human")):
-        return "hitl"
-    if any(t in lower for t in ("openai", "anthropic", "claude", "gpt", "llm", "bedrock", "model")):
-        return "llm"
-    if any(t in lower for t in ("db", "database", "postgres", "pii", "s3", "crm", "langsmith", "trace")):
-        return "data"
-    if any(t in lower for t in ("agent", "orchestrat")):
-        return "agent"
-    if any(t in lower for t in ("tool", "shell", "email", "refund")):
-        return "tool"
-    return "unknown"
+    from isovane_serve.kinds import kind_for_label
+
+    return kind_for_label(label)
 
 
 def _words_from_tesseract(data_dict: dict[str, list[Any]]) -> list[dict[str, Any]]:

@@ -114,11 +114,6 @@ def arc_image_analyze_model() -> str:
     return str(cfg[provider]["arc_image_analyze"])
 
 
-# Backward-compatible aliases
-def arc_diagram_model() -> str:
-    return arc_image_extract_model()
-
-
 def openai_api_key() -> str | None:
     cfg = load_model_config()
     env_name = str(cfg["openai"].get("api_key_env") or "OPENAI_API_KEY")

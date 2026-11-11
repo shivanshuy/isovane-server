@@ -215,29 +215,3 @@ def _copy_text(finding: Finding, fix: SuggestedFix, lane: str) -> str:
         lines.extend(f"# - {item}" for item in fix.checklist)
     return "\n".join(lines) + "\n"
 
-
-def try_libcst_rewrite(source: str, finding: Finding) -> str | None:
-    """Optional LibCST rewrite for shell=True → shell=False."""
-    if "shell=True" not in source:
-        return None
-    try:
-        import libcst as cst  # type: ignore
-    except Exception:
-        return source.replace("shell=True", "shell=False")
-
-    class ShellFalse(cst.CSTTransformer):
-        def leave_Arg(self, original_node: cst.Arg, updated_node: cst.Arg) -> cst.Arg:
-            if (
-                original_node.keyword
-                and original_node.keyword.value == "shell"
-                and isinstance(original_node.value, cst.Name)
-                and original_node.value.value == "True"
-            ):
-                return updated_node.with_changes(value=cst.Name("False"))
-            return updated_node
-
-    try:
-        module = cst.parse_module(source)
-        return module.visit(ShellFalse()).code
-    except Exception:
-        return source.replace("shell=True", "shell=False")

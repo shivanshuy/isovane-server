@@ -1,5 +1,10 @@
 # Shared scan / inventory constants (edit here for maintenance).
 
+code_exts: [.py, .ts, .tsx, .js, .jsx, .mjs, .cjs]
+text_exts: [.py, .ts, .tsx, .js, .jsx, .mjs, .cjs, .md, .txt, .yaml, .yml, .json, .env, .toml]
+semgrep_upstream:
+  - p/ai-best-practices
+
 skip_dir_names:
   - .git
   - node_modules
