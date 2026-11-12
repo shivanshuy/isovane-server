@@ -74,13 +74,6 @@ def pii_classes_in(text: str, classes: list[str] | None = None) -> list[str]:
     return sorted(found)
 
 
-def redact(text: str, classes: list[str] | None = None) -> str:
-    out = text
-    for hit in sorted(detect_pii(text, classes), key=lambda h: h.start, reverse=True):
-        out = out[: hit.start] + f"<{hit.pii_class.upper()}>" + out[hit.end :]
-    return out
-
-
 def args_to_text(args: dict[str, Any]) -> str:
     return " ".join(f"{key}={value}" for key, value in (args or {}).items())
 

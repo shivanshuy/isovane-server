@@ -48,6 +48,3 @@ def kind_tokens(kind_id: str) -> tuple[str, ...]:
 def a2a_tokens() -> tuple[str, ...]:
     return load_kinds_config()["a2a_tokens"]
 
-
-def clear_kinds_cache() -> None:
-    load_kinds_config.cache_clear()

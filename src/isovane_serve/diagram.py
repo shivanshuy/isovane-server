@@ -13,6 +13,7 @@ from isovane_serve.arch_workflow import (
     inventory_summary,
 )
 from isovane_serve.architecture_graph import (
+    board_boundaries as boundaries_from_workspace,
     board_edges as edges_from_workspace,
     board_nodes as nodes_from_workspace,
     graph_from_parts,
@@ -42,9 +43,6 @@ TEXT_EXTENSIONS = {
     ".txt",
     ".md",
 }
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".pdf", ".bmp"}
-
-
 def analyze_diagram(
     workspace_id: str,
     *,
@@ -90,6 +88,7 @@ def analyze_diagram(
 
     board_nodes = nodes_from_workspace(arch_graph)
     board_edges = edges_from_workspace(arch_graph)
+    board_boundaries = boundaries_from_workspace(arch_graph)
     mermaid_view = graph_to_mermaid(arch_graph)
 
     findings: list[Finding] = []
@@ -99,9 +98,14 @@ def analyze_diagram(
         **inventory_summary(
             board_nodes,
             edges=board_edges,
-            board={"nodes": board_nodes, "edges": board_edges},
+            board={
+                "nodes": board_nodes,
+                "edges": board_edges,
+                "boundaries": board_boundaries,
+            },
             mermaid=mermaid_view,
         ),
+        "boundaries": board_boundaries,
         "graph": arch_graph,
     }
     risk_meta: dict[str, Any] = {"status": "rules", "message": "Rule catalog findings."}
@@ -158,9 +162,11 @@ def analyze_diagram(
                     if node.get("y") is None:
                         node["y"] = prev.get("y")
             props = arch_graph.get("properties") if isinstance(arch_graph.get("properties"), dict) else {}
+            kept_boundaries = boundaries_from_workspace(arch_graph)
             arch_graph = graph_from_parts(
                 merged_nodes,
                 board_edges,
+                boundaries=kept_boundaries,
                 source=str(props.get("isovane.source") or "extract"),
                 filename=filename,
             )
@@ -170,9 +176,14 @@ def analyze_diagram(
                 **inventory_summary(
                     merged_nodes,
                     edges=board_edges,
-                    board={"nodes": merged_nodes, "edges": board_edges},
+                    board={
+                        "nodes": merged_nodes,
+                        "edges": board_edges,
+                        "boundaries": kept_boundaries,
+                    },
                     mermaid=graph_to_mermaid(arch_graph),
                 ),
+                "boundaries": kept_boundaries,
                 "graph": arch_graph,
             }
         if mode in ("workflow", "both"):
@@ -342,15 +353,23 @@ def analyze_upload_bytes(
             vision_error = str(exc)
 
     known_seed = seed_for_filename(filename)
+    vision_nodes = _count_nodes(vision_text or "")
     vision_edges = _count_edges(vision_text or "")
+    # llava often returns 1–2 boxes + one arrow and claims success — treat that as sparse.
+    vision_complete = bool(vision_text) and vision_edges > 0 and vision_nodes >= 4
+    vision_sparse = bool(vision_text) and vision_edges > 0 and not vision_complete
 
-    # Prefer vision when it reconstructed usable arrows.
-    if vision_text and vision_edges > 0:
-        description = vision_text
+    if vision_complete:
+        description = vision_text or ""
         extract_source = "vision"
+    elif vision_sparse and known_seed and _count_nodes(known_seed) > vision_nodes:
+        # Partial vision + richer fixture seed → keep full topology; user can still edit.
+        description = known_seed
+        seed_used = "fixture"
+        extract_source = "vision+seed"
     else:
-        # Vision failed or returned no arrows → try OCR (labels + heuristic edges).
-        if is_raster and not (vision_text and vision_edges > 0):
+        # Vision failed / sparse without a richer seed → try OCR (labels + heuristic edges).
+        if is_raster and not vision_complete:
             try:
                 from isovane_serve import ocr_diagram as ocr_diagram_mod
 
@@ -359,8 +378,18 @@ def analyze_upload_bytes(
             except Exception as exc:  # noqa: BLE001
                 ocr_error = str(exc)
 
+        ocr_nodes = int((ocr_meta or {}).get("label_count") or 0) or _count_nodes(ocr_text or "")
         ocr_edges = _count_edges(ocr_text or "")
-        if ocr_text and (ocr_edges > 0 or (ocr_meta or {}).get("label_count", 0) >= 2):
+        if (
+            vision_sparse
+            and vision_text
+            and vision_nodes >= ocr_nodes
+            and (not known_seed or _count_nodes(known_seed) <= vision_nodes)
+        ):
+            # Best we have is the sparse vision graph (unknown image).
+            description = vision_text
+            extract_source = "vision"
+        elif ocr_text and (ocr_edges > 0 or ocr_nodes >= 2):
             # Keep known fixture topology when OCR cannot see arrows well.
             if known_seed and ocr_edges == 0:
                 description = known_seed
@@ -373,6 +402,9 @@ def analyze_upload_bytes(
             description = known_seed
             seed_used = "fixture"
             extract_source = "seed"
+        elif vision_sparse and vision_text:
+            description = vision_text
+            extract_source = "vision"
         else:
             description = generic_connected_seed(filename)
             seed_used = "generic"
@@ -393,6 +425,7 @@ def analyze_upload_bytes(
         vision_error=vision_error,
         vision_text=vision_text,
         vision_edges=vision_edges,
+        vision_nodes=vision_nodes,
         ocr_meta=ocr_meta,
         ocr_error=ocr_error,
         seed_used=seed_used,
@@ -409,6 +442,7 @@ def _extract_status(
     vision_error: str | None,
     vision_text: str | None,
     vision_edges: int,
+    vision_nodes: int = 0,
     ocr_meta: dict[str, Any] | None,
     ocr_error: str | None,
     seed_used: str | None,
@@ -419,6 +453,8 @@ def _extract_status(
         "source": extract_source,
         "edge_count": board_edge_count,
         "seed": seed_used,
+        "vision_nodes": vision_nodes,
+        "vision_edges": vision_edges,
     }
     if extract_source == "vision" and vision_meta:
         notice.update(
@@ -432,11 +468,30 @@ def _extract_status(
         )
         return notice
 
+    if extract_source == "vision+seed":
+        notice.update(
+            {
+                "status": "seeded",
+                "provider": (vision_meta or {}).get("provider"),
+                "model": (vision_meta or {}).get("model"),
+                "extracted_chars": len(vision_text or ""),
+                "message": (
+                    f"Vision only recovered {vision_nodes} box(es) / {vision_edges} arrow(s) — "
+                    "loaded the fuller fixture seed so the board is complete. Correct anything off, then Analyze board."
+                ),
+            }
+        )
+        return notice
+
     if vision_error:
         notice["vision_error"] = vision_error
         notice["error"] = vision_error  # legacy field
     elif vision_meta and vision_edges == 0:
         notice["vision_error"] = "Vision returned text but no usable arrows."
+    elif vision_meta and vision_nodes and vision_nodes < 4:
+        notice["vision_error"] = (
+            f"Vision returned a partial board ({vision_nodes} boxes / {vision_edges} arrows)."
+        )
 
     if extract_source in {"ocr", "ocr+seed"} and ocr_meta:
         notice.update(
@@ -493,6 +548,36 @@ def _count_edges(text: str) -> int:
     if isinstance(edges, list) and edges:
         return len(edges)
     return len(re.findall(r"-->|->|→", text))
+
+
+def _count_nodes(text: str) -> int:
+    if not text:
+        return 0
+    parsed = parse_graph_json(text) or {}
+    nodes = parsed.get("nodes") if isinstance(parsed, dict) else None
+    if isinstance(nodes, list) and nodes:
+        return len(nodes)
+    # NODES: bullet section from vision prompt
+    section = re.search(
+        r"(?is)NODES:\s*(.*?)(?:TRUST\s*/\s*NOTES:|GRAPH_JSON:|DIAGRAM:|\Z)",
+        text,
+    )
+    if section:
+        bullets = re.findall(r"(?m)^\s*[-*•]\s+\S+", section.group(1))
+        if bullets:
+            return len(bullets)
+    # Distinct endpoints from arrow lines
+    labels: set[str] = set()
+    for left, right in re.findall(
+        r"(?m)^\s*([^-\n]+?)\s*(?:-->|->|→)\s*([^:\n]+)",
+        text,
+    ):
+        a, b = left.strip(), right.strip()
+        if a:
+            labels.add(a.lower())
+        if b:
+            labels.add(b.lower())
+    return len(labels)
 
 
 def _legacy_trust_rules(

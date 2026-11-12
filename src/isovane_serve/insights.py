@@ -6,9 +6,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .incidents_catalog import (
-    CHATBOT_AGENCY,
     DEFAULT_GENERAL,
-    DEFAULT_LLM,
     EXCESSIVE_AGENCY,
     IncidentDict,
     MCP_SUPPLY,
@@ -50,19 +48,23 @@ class IssueInsight:
         if not combined and story:
             combined = story
 
-        cases = list(self.incidents) if self.incidents else incidents_for_blob(
-            self.match_blob
-            or " ".join(
-                [
-                    self.summary,
-                    self.incident_headline,
-                    self.incident_story,
-                    self.incident_technical,
-                    " ".join(self.tags),
-                    " ".join(self.solutions),
-                ]
-            )
+        match = self.match_blob or " ".join(
+            [
+                self.summary,
+                self.incident_headline,
+                self.incident_story,
+                self.incident_technical,
+                " ".join(self.tags),
+                " ".join(self.solutions),
+            ]
         )
+        if self.incidents:
+            cases = list(self.incidents)
+        elif match.startswith("architecture"):
+            # Architecture insights must not inherit Code/PII case-file catalogs.
+            cases = []
+        else:
+            cases = incidents_for_blob(match)
         # Fallback: single hand-written case only when the catalog has nothing
         if not cases and self.incident_headline.strip():
             cases = [
@@ -117,6 +119,93 @@ def _with_incidents(
     return replace(insight, match_blob=blob, incidents=cases)
 
 
+def _architecture_insight(*, title: str, issue_text: str, blob: str) -> IssueInsight:
+    """Keep architecture narratives — never steal code-scanner PII/prompt templates."""
+    summary = (issue_text or title).strip()
+    if any(key in blob for key in ("label", "unclassified", "could not map")):
+        return IssueInsight(
+            summary=summary,
+            exploit=(
+                "Example exploit: without vendor/region and data-class labels on the board, "
+                "privacy review cannot see which LLM clouds receive org data. Residency and DLP gaps "
+                "stay invisible until a real egress incident."
+            ),
+            solutions=[
+                "Label each model node with vendor + region",
+                "Mark PII/data stores and any DLP/ZDR controls on the diagram",
+                "Re-run privacy analyze after labeling",
+            ],
+            technical_details=(
+                "Architecture privacy analysis keys off labeled hops (org → datastore → LLM vendor). "
+                "Missing labels collapse that graph, so rule and LLM risk checks cannot score residency, "
+                "multi-cloud fan-out, or redact/ZDR gaps. Fix is diagram hygiene, not a code patch."
+            ),
+            tags=["Architecture", "Privacy & cloud"],
+            owasp=["ASI10"],
+            match_blob="architecture privacy labels residency",
+            incidents=[],
+        )
+    if any(key in blob for key in ("egress", "residency", "multi-cloud", "vendor cloud", "cloud llm")):
+        return IssueInsight(
+            summary=summary,
+            exploit=(
+                "Example exploit: org or customer data leaves your trust boundary into a vendor LLM cloud "
+                "with weak residency/DLP controls. An attacker who can influence prompts or RAG content "
+                "steers that egress path; the diagram gap is the missing control on the hop."
+            ),
+            solutions=[
+                "Minimize and redact payloads before any cloud LLM hop",
+                "Document vendor + region on every model node; prefer ZDR / no-train tiers where required",
+                "Add HITL or DLP gates on edges that carry PII or secrets",
+            ],
+            technical_details=(
+                "Cross-cloud LLM hops are separate processors. Without labeled residency, DLP/ZDR, and "
+                "HITL on those edges, architecture review cannot prove lawful transfer or contain exfil."
+            ),
+            tags=["Architecture", "Privacy & cloud"],
+            owasp=["ASI10", "LLM02"],
+            match_blob="architecture privacy egress residency multi-cloud",
+            incidents=[],
+        )
+    if any(key in blob for key in ("workflow", "mcp", "hitl", "agency", "tool")):
+        return IssueInsight(
+            summary=summary,
+            exploit=(
+                "Example exploit: the workflow graph lets an agent reach a high-impact tool "
+                "(shell, pay, send, write) without a human gate. Poisoned chat or MCP context "
+                "drives that edge; the missing HITL/deny on the board is the failure."
+            ),
+            solutions=[
+                "Add HITL or deny edges before high-impact tools",
+                "Narrow tool allow-lists per agent role on the diagram",
+                "Re-analyze the board after editing controls",
+            ],
+            technical_details=(
+                "Workflow architecture findings are graph control gaps: agency without gates. "
+                "Remediation is changing the board (HITL, deny, allow-list), then re-running analyze."
+            ),
+            tags=["Architecture", "Workflow"],
+            owasp=["ASI01", "ASI05"],
+            match_blob="architecture workflow agency hitl mcp",
+            incidents=[],
+        )
+    return IssueInsight(
+        summary=summary,
+        exploit=(
+            "Example exploit: treat the diagram as the trust boundary. Missing controls "
+            "(labels, HITL, DLP, deny edges) are how data or agency leaves your org."
+        ),
+        solutions=[],
+        technical_details=(
+            "Fix this on the architecture board, then re-analyze. Architecture findings are "
+            "control/topology gaps — not line-of-code sinks from the Code scanner."
+        ),
+        tags=["Architecture"],
+        match_blob="architecture diagram control gap",
+        incidents=[],
+    )
+
+
 def insight_for(
     *,
     title: str = "",
@@ -126,6 +215,11 @@ def insight_for(
     test_id: str = "",
 ) -> IssueInsight:
     blob = " ".join([title, issue_text, test_id, tool, snippet]).lower()
+
+    # Architecture analyzers must not inherit Code (Bandit/PII/prompt) story templates.
+    # A single word like "PII" in a diagram note previously swapped in prompt-injection copy.
+    if tool.startswith("architecture-"):
+        return _architecture_insight(title=title, issue_text=issue_text, blob=blob)
 
     if any(
         key in blob

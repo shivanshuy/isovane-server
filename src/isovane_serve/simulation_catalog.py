@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
-
-FidelityMode = Literal["code", "prompt", "policy"]
+from typing import Any
 
 PACKS: dict[str, dict[str, Any]] = {
     "ssrf_url": {

@@ -79,7 +79,7 @@ def test_vision_extract_ollama_mocked(monkeypatch):
             }
         }
 
-    monkeypatch.setattr("isovane_serve.vision_diagram._post_json", fake_post)
+    monkeypatch.setattr("isovane_serve.vision_diagram.post_json", fake_post)
     monkeypatch.setattr("isovane_serve.vision_diagram.active_provider", lambda: "ollama")
     monkeypatch.setattr(
         "isovane_serve.vision_diagram.arc_image_extract_model", lambda: "llama3.2-vision"

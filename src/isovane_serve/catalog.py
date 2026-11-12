@@ -56,11 +56,3 @@ CATEGORIES = (
     "agency",
 )
 STATUSES = ("open", "accepted", "fixed", "wontfix", "false_positive")
-
-
-def label(owasp_id: str) -> str:
-    return ALL_OWASP.get(owasp_id, owasp_id)
-
-
-def validate_owasp(ids: list[str]) -> list[str]:
-    return [item for item in ids if item in ALL_OWASP]

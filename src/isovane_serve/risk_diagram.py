@@ -111,6 +111,7 @@ def _chat(provider: str, model: str, diagram_json: str) -> str:
             {
                 "model": model,
                 "stream": False,
+                "format": "json",
                 "messages": [{"role": "user", "content": content}],
                 "options": {"temperature": 0.1},
             },
@@ -131,16 +132,23 @@ def _parse_findings(
 ) -> list[Finding]:
     data = _extract_json(raw)
     if not data:
+        preview = re.sub(r"\s+", " ", (raw or "").strip())[:240]
+        log.warning("risk analyze: no JSON object in model reply (%s)", preview or "<empty>")
         return []
     items = data.get("findings") if isinstance(data, dict) else None
+    if items is None and isinstance(data.get("issues"), list):
+        items = data.get("issues")
     if not isinstance(items, list):
+        log.warning("risk analyze: JSON missing findings[] keys=%s", list(data)[:8])
         return []
     out: list[Finding] = []
     for item in items:
         if not isinstance(item, dict):
             continue
-        title = str(item.get("title") or "").strip()
-        summary = str(item.get("summary") or "").strip()
+        title = str(item.get("title") or item.get("name") or "").strip()
+        summary = str(
+            item.get("summary") or item.get("description") or item.get("detail") or ""
+        ).strip()
         if not title or not summary:
             continue
         severity = str(item.get("severity") or "medium").lower().strip()
@@ -180,19 +188,81 @@ def _parse_findings(
 
 
 def _extract_json(raw: str) -> dict[str, Any] | None:
+    """Parse a findings object from model output (fenced, nested, or trailing prose)."""
     text = (raw or "").strip()
     if not text:
         return None
-    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S | re.I)
+
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text, re.I)
     if fence:
-        text = fence.group(1)
-    start = text.find("{")
-    end = text.rfind("}")
-    if start < 0 or end <= start:
+        text = fence.group(1).strip()
+
+    candidates = _json_object_candidates(text)
+    # Some models return a bare findings array.
+    if text.lstrip().startswith("["):
+        end = text.rfind("]")
+        if end > 0:
+            candidates = [text[: end + 1], *candidates]
+
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError:
+            repaired = _repair_json(candidate)
+            if not repaired:
+                continue
+            try:
+                data = json.loads(repaired)
+            except json.JSONDecodeError:
+                continue
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, list):
+            return {"findings": data}
+    return None
+
+
+def _json_object_candidates(text: str) -> list[str]:
+    """Yield balanced `{...}` slices; prefer the largest object that mentions findings."""
+    out: list[str] = []
+    start = None
+    depth = 0
+    in_str = False
+    escape = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+            continue
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}" and depth:
+            depth -= 1
+            if depth == 0 and start is not None:
+                out.append(text[start : i + 1])
+                start = None
+    if not out:
+        return []
+    # Prefer objects that look like our schema, then longest.
+    out.sort(key=lambda s: (("findings" in s or "issues" in s), len(s)), reverse=True)
+    return out
+
+
+def _repair_json(blob: str) -> str | None:
+    """Best-effort fixes for trailing commas / single quotes from small models."""
+    text = blob.strip()
+    if not text:
         return None
-    blob = text[start : end + 1]
-    try:
-        data = json.loads(blob)
-    except json.JSONDecodeError:
-        return None
-    return data if isinstance(data, dict) else None
+    text = re.sub(r",\s*([}\]])", r"\1", text)
+    if "'" in text and '"' not in text:
+        text = text.replace("'", '"')
+    return text

@@ -24,29 +24,37 @@ vision_extract: |
   {"nodes":[{"id":"ui1","label":"Chat UI","kind":"ui","x":40,"y":40},{"id":"agent1","label":"Orchestrator agent","kind":"agent","x":220,"y":40}],"edges":[{"from":"ui1","to":"agent1","kind":"link"}]}
 
   Rules for GRAPH_JSON (highest priority):
-  - recreate topology first: every visible box and every visible arrow
+  - recreate topology first: every visible box and every visible arrow (do not stop after 1–2 boxes)
+  - include LLM clouds, data stores, MCP, tools, HITL, and logs when they appear — not only UI + agent
   - kind must be one of: ui, agent, mcp, tool, llm, data, hitl, unknown
   - ids: short stable tokens, no spaces
   - label: closest readable text from the image (do not invent brands that are not shown)
   - x,y: approximate left-to-right / top-to-bottom canvas coords in pixels (origin top-left, x+=180 per column, y+=96 per row)
   - if a label is blurry, still emit a best-effort node rather than dropping it
+  - GRAPH_JSON.nodes length should match the NODES bullet list
 
 architecture_risk: |
   You are an AI-agent architecture security reviewer.
 
   You receive a Structurizr workspace (C4 model) — the same model the user edits on the board.
   Read model.people / model.softwareSystems / model.relationships.
+  Also read model.deploymentNodes and the top-level "boundaries" array: these are drawn clouds /
+  trust zones / VPCs. Each boundary lists which elements it contains (contains / contains_labels).
+  Treat boundary labels as residency / vendor / network domains (e.g. "OpenAI", "AWS VPC").
   Isovane kinds are in tags and properties.kind: ui | agent | mcp | tool | llm | data | hitl | unknown
-  A mermaid view and kind_guide are included for convenience.
+  A mermaid view, kind_guide, and boundary_guide are included for convenience.
 
   List concrete risks grounded only in that workspace.
   Focus on: missing HITL, MCP/supply-chain, wildcard tools, shell/exec, A2A without auth,
-  PII/multi-cloud LLM egress, missing DLP/ZDR, trust-boundary gaps, observability sinks.
+  PII/multi-cloud LLM egress, missing DLP/ZDR, trust-boundary gaps, observability sinks,
+  cross-boundary data flows (node in one cloud/zone calling a node in another).
 
-  Return ONLY valid JSON (no markdown fences):
+  Return ONLY a single JSON object (no markdown fences, no prose before/after):
   {"findings":[{"title":"...","summary":"...","severity":"critical|high|medium|low","region":"ui→agent","tags":["Workflow"],"owasp":["LLM06"],"checklist":["..."],"fix_summary":"..."}]}
 
   Rules:
-  - Only findings supported by the workspace (do not invent boxes that are not present)
-  - 1–8 findings max; skip noise
-  - severity must be one of critical, high, medium, low
+    - Only findings supported by the workspace (do not invent boxes that are not present)
+    - 1–8 findings max; skip noise
+    - If nothing material, return {"findings":[]}
+    - severity must be one of critical, high, medium, low
+    - Every finding needs non-empty title and summary strings

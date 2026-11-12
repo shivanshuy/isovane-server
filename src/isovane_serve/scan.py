@@ -43,8 +43,8 @@ _BROAD_PERMS = re.compile(r'["\']permissions["\']\s*:\s*["\']\*["\']')
 _RULES_DIR = AGENT_RULES_DIR
 
 
-def _code_exts() -> set[str]:
-    return load_scan_settings()["code_exts"] or {
+def _text_exts() -> set[str]:
+    return load_scan_settings()["text_exts"] or {
         ".py",
         ".ts",
         ".tsx",
@@ -52,11 +52,14 @@ def _code_exts() -> set[str]:
         ".jsx",
         ".mjs",
         ".cjs",
+        ".md",
+        ".txt",
+        ".yaml",
+        ".yml",
+        ".json",
+        ".env",
+        ".toml",
     }
-
-
-def _text_exts() -> set[str]:
-    return load_scan_settings()["text_exts"] or (_code_exts()() | {".md", ".txt", ".yaml", ".yml", ".json", ".env", ".toml"})
 
 
 def _upstream_configs() -> tuple[str, ...]:

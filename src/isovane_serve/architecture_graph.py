@@ -35,10 +35,6 @@ _KIND_C4 = {
 }
 
 
-def empty_graph(*, source: str = "empty", filename: str | None = None) -> dict[str, Any]:
-    return _workspace([], [], source=source, filename=filename, name="Architecture")
-
-
 def normalize_graph(
     raw: dict[str, Any] | None,
     *,
@@ -47,6 +43,7 @@ def normalize_graph(
 ) -> dict[str, Any]:
     """Accept Structurizr workspace OR legacy {nodes,edges}/board → Structurizr workspace."""
     data = raw if isinstance(raw, dict) else {}
+    boundaries_in = _extract_boundaries(data)
 
     if _is_structurizr(data):
         nodes, edges = _board_parts_from_workspace(data)
@@ -54,6 +51,7 @@ def normalize_graph(
         return _workspace(
             nodes,
             edges,
+            boundaries=boundaries_in or _boundaries_from_workspace(data),
             source=str(props.get("isovane.source") or source),
             filename=filename or props.get("isovane.filename"),
             name=str(data.get("name") or "Architecture"),
@@ -65,11 +63,21 @@ def normalize_graph(
     if not nodes_in and isinstance(data.get("board"), dict):
         nodes_in = data["board"].get("nodes") or []
         edges_in = data["board"].get("edges") or edges_in
+        if not boundaries_in:
+            boundaries_in = _clean_boundaries(data["board"].get("boundaries") or [])
     if not nodes_in and isinstance(data.get("graph"), dict) and not _is_structurizr(data["graph"]):
         nodes_in = data["graph"].get("nodes") or []
         edges_in = data["graph"].get("edges") or edges_in
+        if not boundaries_in:
+            boundaries_in = _extract_boundaries(data["graph"])
 
-    return graph_from_parts(nodes_in, edges_in, source=source, filename=filename)
+    return graph_from_parts(
+        nodes_in,
+        edges_in,
+        boundaries=boundaries_in,
+        source=source,
+        filename=filename,
+    )
 
 
 def graph_from_parts(
@@ -78,6 +86,7 @@ def graph_from_parts(
     *,
     source: str,
     filename: str | None = None,
+    boundaries: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     used: set[str] = set()
     clean_nodes: list[dict[str, Any]] = []
@@ -120,7 +129,13 @@ def graph_from_parts(
         if not any(e["from"] == frm and e["to"] == to for e in clean_edges):
             clean_edges.append(edge)
 
-    return _workspace(clean_nodes, clean_edges, source=source, filename=filename)
+    return _workspace(
+        clean_nodes,
+        clean_edges,
+        boundaries=_clean_boundaries(boundaries),
+        source=source,
+        filename=filename,
+    )
 
 
 def board_nodes(graph: dict[str, Any]) -> list[dict[str, Any]]:
@@ -152,6 +167,7 @@ def graph_to_analysis_text(graph: dict[str, Any]) -> str:
     """Derived text for rule engines; canonical blob is STRUCTURIZR_WORKSPACE."""
     g = normalize_graph(graph)
     nodes, edges = _board_parts_from_workspace(g)
+    boundaries = board_boundaries(g)
     lines = ["DIAGRAM:"]
     id_label = {n["id"]: n["label"] for n in nodes}
     for edge in edges:
@@ -159,6 +175,14 @@ def graph_to_analysis_text(graph: dict[str, Any]) -> str:
     lines.append("NODES:")
     for node in nodes:
         lines.append(f"- {node['label']} ({node['kind']})")
+    if boundaries:
+        lines.append("BOUNDARIES:")
+        for box in boundaries:
+            contains = box.get("contains_labels") or box.get("contains") or []
+            contain_txt = ", ".join(str(x) for x in contains) if contains else "(empty)"
+            lines.append(
+                f"- {box.get('label')} ({box.get('kind')}) contains: {contain_txt}"
+            )
     lines.append("STRUCTURIZR_WORKSPACE:")
     lines.append(json.dumps(g, ensure_ascii=False))
     return "\n".join(lines)
@@ -185,14 +209,22 @@ def parse_architecture_graph(text: str) -> dict[str, Any] | None:
     return None
 
 
+def board_boundaries(graph: dict[str, Any]) -> list[dict[str, Any]]:
+    """Normalized cloud / trust / VPC boundaries with containment labels."""
+    g = normalize_graph(graph)
+    return _boundaries_from_workspace(g)
+
+
 def llm_payload(graph: dict[str, Any], *, mode: str = "both") -> dict[str, Any]:
     """Payload for risk LLM = the same Structurizr workspace (+ mode)."""
     g = normalize_graph(graph)
+    boundaries = board_boundaries(g)
     return {
         "format": SCHEMA_ID,
         "mode": mode,
         "workspace": g,
         "mermaid": graph_to_mermaid(g),
+        "boundaries": boundaries,
         "kind_guide": {
             "ui": "user interface / chat",
             "agent": "AI agent / orchestrator",
@@ -201,6 +233,12 @@ def llm_payload(graph: dict[str, Any], *, mode: str = "both") -> dict[str, Any]:
             "llm": "external LLM vendor",
             "data": "database / CRM / logs",
             "hitl": "human-in-the-loop approval",
+        },
+        "boundary_guide": {
+            "cloud": "vendor / public cloud region drawn on the board",
+            "trust": "trust zone / security domain",
+            "vpc": "VPC / private network",
+            "zone": "generic boundary / residency domain",
         },
     }
 
@@ -213,6 +251,7 @@ def _workspace(
     filename: str | None,
     name: str = "Architecture",
     description: str = "Isovane architecture playground (C4 / Structurizr)",
+    boundaries: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     people: list[dict[str, Any]] = []
     systems: list[dict[str, Any]] = []
@@ -270,9 +309,44 @@ def _workspace(
         )
         view_rels.append({"id": rid})
 
+    # Recompute containment against current node geometry when possible.
+    clean_bounds = _enrich_boundary_contains(
+        _clean_boundaries(boundaries),
+        nodes,
+        id_map,
+    )
+    deployment_nodes: list[dict[str, Any]] = []
+    for index, box in enumerate(clean_bounds, start=1):
+        bid = str(box.get("id") or f"b{index}")
+        kind = str(box.get("kind") or "zone")
+        contains_ids = [str(x) for x in (box.get("contains") or [])]
+        contains_sids = [id_map[cid] for cid in contains_ids if cid in id_map]
+        if not contains_sids and box.get("contains_sids"):
+            contains_sids = [str(x) for x in box["contains_sids"]]
+        bprops: dict[str, str] = {
+            "kind": kind,
+            "boundary": "true",
+            "contains": ",".join(contains_sids),
+        }
+        for key in ("x", "y", "w", "h", "z"):
+            if box.get(key) is not None:
+                bprops[key] = str(int(float(box[key])))
+        deployment_nodes.append(
+            {
+                "id": bid if bid.startswith("b") else f"b{index}",
+                "name": str(box.get("label") or kind),
+                "description": f"Isovane boundary: {kind}",
+                "tags": f"Deployment Node,Boundary,{kind}",
+                "properties": bprops,
+            }
+        )
+
     props: dict[str, str] = {"isovane.source": source, "structurizr.dsl": "false"}
     if filename:
         props["isovane.filename"] = str(filename)
+    if clean_bounds:
+        # Compact board-native copy so UI/LLM round-trips even if deploymentNodes are ignored.
+        props["isovane.boundaries"] = json.dumps(clean_bounds, ensure_ascii=False)
 
     return {
         "id": 1,
@@ -282,6 +356,7 @@ def _workspace(
             "people": people,
             "softwareSystems": systems,
             "relationships": relationships,
+            "deploymentNodes": deployment_nodes,
         },
         "views": {
             "systemLandscapeViews": [
@@ -303,6 +378,10 @@ def _workspace(
                         {"tag": "llm", "background": "#ccfbf1", "color": "#115e59"},
                         {"tag": "data", "background": "#e2e8f0", "color": "#334155"},
                         {"tag": "hitl", "background": "#dcfce7", "color": "#166534"},
+                        {"tag": "cloud", "background": "#eff6ff", "color": "#1d4ed8"},
+                        {"tag": "trust", "background": "#f0fdf4", "color": "#15803d"},
+                        {"tag": "vpc", "background": "#f5f3ff", "color": "#6d28d9"},
+                        {"tag": "zone", "background": "#fffbeb", "color": "#b45309"},
                     ]
                 }
             },
@@ -376,10 +455,180 @@ def _board_parts_from_workspace(workspace: dict[str, Any]) -> tuple[list[dict[st
     return nodes, edges
 
 
+_BOUNDARY_KINDS = {"cloud", "trust", "vpc", "zone"}
+
+
+def _extract_boundaries(data: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(data, dict):
+        return []
+    if isinstance(data.get("boundaries"), list):
+        return _clean_boundaries(data["boundaries"])
+    props = data.get("properties") if isinstance(data.get("properties"), dict) else {}
+    raw = props.get("isovane.boundaries")
+    if isinstance(raw, str) and raw.strip():
+        try:
+            arr = json.loads(raw)
+        except json.JSONDecodeError:
+            arr = None
+        if isinstance(arr, list):
+            return _clean_boundaries(arr)
+    if isinstance(data.get("board"), dict) and isinstance(data["board"].get("boundaries"), list):
+        return _clean_boundaries(data["board"]["boundaries"])
+    return _boundaries_from_workspace(data) if _is_structurizr(data) else []
+
+
+def _boundaries_from_workspace(workspace: dict[str, Any]) -> list[dict[str, Any]]:
+    model = workspace.get("model") if isinstance(workspace.get("model"), dict) else {}
+    props = workspace.get("properties") if isinstance(workspace.get("properties"), dict) else {}
+    raw = props.get("isovane.boundaries")
+    if isinstance(raw, str) and raw.strip():
+        try:
+            arr = json.loads(raw)
+        except json.JSONDecodeError:
+            arr = None
+        if isinstance(arr, list) and arr:
+            # Prefer property snapshot (includes board ids / labels); still map contains via sids below.
+            cleaned = _clean_boundaries(arr)
+            # Resolve contains_labels from software systems if only sids present
+            return _attach_contains_labels(cleaned, workspace)
+
+    out: list[dict[str, Any]] = []
+    for item in model.get("deploymentNodes") or []:
+        if not isinstance(item, dict):
+            continue
+        iprops = item.get("properties") if isinstance(item.get("properties"), dict) else {}
+        if str(iprops.get("boundary") or "").lower() not in {"1", "true", "yes"} and "Boundary" not in str(
+            item.get("tags") or ""
+        ):
+            continue
+        kind = str(iprops.get("kind") or _kind_from_tags(item.get("tags")) or "zone").lower()
+        if kind not in _BOUNDARY_KINDS:
+            kind = "zone"
+        contains_sids = [p for p in str(iprops.get("contains") or "").split(",") if p.strip()]
+        box: dict[str, Any] = {
+            "id": str(item.get("id") or ""),
+            "label": _clean(str(item.get("name") or kind)),
+            "kind": kind,
+            "contains_sids": contains_sids,
+        }
+        for key in ("x", "y", "w", "h", "z"):
+            num = _num(iprops.get(key))
+            if num is not None:
+                box[key] = num
+        out.append(box)
+    return _attach_contains_labels(out, workspace)
+
+
+def _attach_contains_labels(
+    boundaries: list[dict[str, Any]],
+    workspace: dict[str, Any],
+) -> list[dict[str, Any]]:
+    nodes, _ = _board_parts_from_workspace(workspace)
+    sid_to_label: dict[str, str] = {}
+    model = workspace.get("model") if isinstance(workspace.get("model"), dict) else {}
+    for group in ("people", "softwareSystems"):
+        for item in model.get(group) or []:
+            if isinstance(item, dict) and item.get("id") is not None:
+                sid_to_label[str(item["id"])] = _clean(str(item.get("name") or item["id"]))
+    # also board id → label
+    nid_to_label = {str(n["id"]): str(n["label"]) for n in nodes}
+    enriched: list[dict[str, Any]] = []
+    for box in boundaries:
+        labels = [str(x) for x in (box.get("contains_labels") or []) if x]
+        contains = [str(x) for x in (box.get("contains") or []) if x]
+        if not labels and box.get("contains_sids"):
+            labels = [sid_to_label[s] for s in box["contains_sids"] if s in sid_to_label]
+        if not labels and contains:
+            labels = [nid_to_label.get(cid, sid_to_label.get(cid, cid)) for cid in contains]
+        next_box = dict(box)
+        next_box["contains_labels"] = labels
+        if contains:
+            next_box["contains"] = contains
+        enriched.append(next_box)
+    return enriched
+
+
+def _clean_boundaries(raw: list[Any] | None) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    used: set[str] = set()
+    for item in raw or []:
+        if not isinstance(item, dict):
+            continue
+        label = _clean(str(item.get("label") or item.get("name") or ""))
+        if not label:
+            continue
+        kind = str(item.get("kind") or "zone").lower().strip()
+        if kind not in _BOUNDARY_KINDS:
+            kind = "zone"
+        bid = _clean_id(str(item.get("id") or "")) or _slug(label, used)
+        if bid in used:
+            bid = _slug(label, used)
+        used.add(bid)
+        box: dict[str, Any] = {"id": bid, "label": label, "kind": kind}
+        for key in ("x", "y", "w", "h", "z"):
+            num = _num(item.get(key))
+            if num is not None:
+                box[key] = num
+        contains = item.get("contains") or item.get("contains_ids") or []
+        if isinstance(contains, str):
+            contains = [p for p in contains.split(",") if p.strip()]
+        if isinstance(contains, list):
+            box["contains"] = [str(x).strip() for x in contains if str(x).strip()]
+        labels = item.get("contains_labels") or []
+        if isinstance(labels, list) and labels:
+            box["contains_labels"] = [str(x) for x in labels if x]
+        if item.get("contains_sids"):
+            box["contains_sids"] = [str(x) for x in item["contains_sids"] if x]
+        out.append(box)
+    return out
+
+
+def _enrich_boundary_contains(
+    boundaries: list[dict[str, Any]],
+    nodes: list[dict[str, Any]],
+    id_map: dict[str, str],
+) -> list[dict[str, Any]]:
+    """If a boundary has geometry, mark nodes whose centers fall inside it."""
+    enriched: list[dict[str, Any]] = []
+    for box in boundaries:
+        next_box = dict(box)
+        x, y, w, h = _num(box.get("x")), _num(box.get("y")), _num(box.get("w")), _num(box.get("h"))
+        if None not in (x, y, w, h) and w > 0 and h > 0:
+            hit_ids: list[str] = []
+            hit_labels: list[str] = []
+            for node in nodes:
+                nx, ny = _num(node.get("x")), _num(node.get("y"))
+                if nx is None or ny is None:
+                    continue
+                # Approximate node center using typical board box size when only top-left is known.
+                cx = nx + 74
+                cy = ny + 32
+                if x <= cx <= x + w and y <= cy <= y + h:
+                    hit_ids.append(str(node["id"]))
+                    hit_labels.append(str(node["label"]))
+            if hit_ids:
+                next_box["contains"] = hit_ids
+                next_box["contains_labels"] = hit_labels
+                next_box["contains_sids"] = [id_map[i] for i in hit_ids if i in id_map]
+        elif next_box.get("contains") and not next_box.get("contains_labels"):
+            label_by_id = {str(n["id"]): str(n["label"]) for n in nodes}
+            next_box["contains_labels"] = [
+                label_by_id.get(cid, cid) for cid in next_box["contains"]
+            ]
+            next_box["contains_sids"] = [
+                id_map[cid] for cid in next_box["contains"] if cid in id_map
+            ]
+        enriched.append(next_box)
+    return enriched
+
+
 def _is_structurizr(data: dict[str, Any]) -> bool:
     model = data.get("model")
     return isinstance(model, dict) and (
-        "softwareSystems" in model or "people" in model or "relationships" in model
+        "softwareSystems" in model
+        or "people" in model
+        or "relationships" in model
+        or "deploymentNodes" in model
     )
 
 

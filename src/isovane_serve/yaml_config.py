@@ -20,12 +20,6 @@ def load_yaml(path: str) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def clear_yaml_cache() -> None:
-    load_yaml.cache_clear()
-    load_prompts.cache_clear()
-    load_scan_settings.cache_clear()
-
-
 @lru_cache(maxsize=4)
 def load_prompts(path: str | None = None) -> dict[str, str]:
     data = load_yaml(str(path or PROMPTS_YAML))
@@ -41,12 +35,10 @@ def load_scan_settings(path: str | None = None) -> dict[str, Any]:
     skip = data.get("skip_dir_names") or []
     mcp = data.get("mcp") or {}
     ast = data.get("ast_taint") or {}
-    code_exts = {str(x) for x in (data.get("code_exts") or [])}
     text_exts = {str(x) for x in (data.get("text_exts") or [])}
     upstream = [str(x) for x in (data.get("semgrep_upstream") or []) if x]
     return {
         "skip_dir_names": {str(x) for x in skip},
-        "code_exts": code_exts,
         "text_exts": text_exts,
         "semgrep_upstream": upstream,
         "mcp": {
