@@ -1,9 +1,10 @@
-"""In-memory findings/traces plus persistent workspace catalog."""
+"""Findings/traces/jobs with disk persistence + workspace catalog."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from isovane_serve import persistence
 from isovane_serve import workspaces as workspaces_mod
 from isovane_serve.models import Finding, PolicyConfig, ScanJob, Trace, utc_now
 
@@ -70,6 +71,19 @@ SCAN_JOBS: dict[str, ScanJob] = {}
 AGENT_REGISTRY: dict[str, dict[str, Any]] = {}
 
 
+def bootstrap_persistence() -> None:
+    """Load durable state from ISOVANE_DATA_DIR (idempotent)."""
+    FINDINGS.clear()
+    FINDINGS.update(persistence.load_findings())
+    TRACES.clear()
+    TRACES.update(persistence.load_traces())
+    SCAN_JOBS.clear()
+    SCAN_JOBS.update(persistence.load_jobs())
+
+
+bootstrap_persistence()
+
+
 def workspace_by_id(workspace_id: str) -> dict | None:
     return workspaces_mod.store.get(workspace_id)
 
@@ -112,6 +126,10 @@ def delete_workspace(workspace_id: str) -> bool:
         TRACES.pop(tid, None)
     for jid in [jid for jid, job in SCAN_JOBS.items() if getattr(job, "workspace_id", None) == workspace_id]:
         SCAN_JOBS.pop(jid, None)
+    persistence.delete_workspace_artifacts(workspace_id)
+    persistence.save_findings(FINDINGS)
+    persistence.save_traces(TRACES)
+    persistence.save_jobs(SCAN_JOBS)
     return True
 
 
@@ -125,6 +143,7 @@ def set_policy(workspace_id: str, policy: PolicyConfig) -> PolicyConfig:
 
 def add_finding(finding: Finding) -> Finding:
     FINDINGS[finding.id] = finding
+    persistence.save_findings(FINDINGS)
     return finding
 
 
@@ -153,11 +172,13 @@ def patch_finding(finding_id: str, **updates: Any) -> Finding | None:
         data["closed_at"] = utc_now()
     updated = Finding.model_validate(data)
     FINDINGS[finding_id] = updated
+    persistence.save_findings(FINDINGS)
     return updated
 
 
 def add_trace(trace: Trace) -> Trace:
     TRACES[trace.id] = trace
+    persistence.save_traces(TRACES)
     return trace
 
 
@@ -171,6 +192,14 @@ def list_traces(workspace_id: str | None = None) -> list[Trace]:
 
 def add_job(job: ScanJob) -> ScanJob:
     SCAN_JOBS[job.id] = job
+    persistence.save_jobs(SCAN_JOBS)
+    return job
+
+
+def put_job(job: ScanJob) -> ScanJob:
+    """Update an existing job and flush to disk."""
+    SCAN_JOBS[job.id] = job
+    persistence.save_jobs(SCAN_JOBS)
     return job
 
 

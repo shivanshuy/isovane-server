@@ -17,6 +17,9 @@ skip_dir_names:
   - .pytest_cache
 
 mcp:
+  # Opt-in HTTP tools/list probe (never spawns stdio). Or set ISOVANE_MCP_LIVE_PROBE=1.
+  live_probe: false
+  live_probe_timeout_sec: 4
   runners:
     - npx
     - npm

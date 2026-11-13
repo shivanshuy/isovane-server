@@ -32,6 +32,7 @@ from isovane_serve.models import Finding, FindingEvidence, SuggestedFix, utc_now
 from isovane_serve.paths import AGENT_RULES_DIR
 from isovane_serve.pii import detect_pii
 from isovane_serve.promptlint import lint_paths, lint_text
+from isovane_serve.remediations import apply_remediation_fields
 from isovane_serve.semgrep_map import classify_semgrep_hit
 from isovane_serve.yaml_config import load_scan_settings
 
@@ -41,6 +42,59 @@ _EXEC = re.compile(r"\bexec\s*\(")
 _BROAD_PERMS = re.compile(r'["\']permissions["\']\s*:\s*["\']\*["\']')
 
 _RULES_DIR = AGENT_RULES_DIR
+
+# Semgrep on Windows has been observed returning garbage in extra.lines
+# (literally "requires login" for every hit). Always prefer reading the file.
+_BOGUS_SNIPPET = re.compile(r"(?i)^requires\s+login\.?$")
+
+
+def _read_source_window(
+    root: Path,
+    rel_or_abs: str | None,
+    line: int | None,
+    end_line: int | None = None,
+    *,
+    radius: int = 5,
+    fallback: str = "",
+) -> str:
+    """Multi-line code window for Technical details — never a single orphan line."""
+    fb = (fallback or "").strip()
+    if _BOGUS_SNIPPET.match(fb):
+        fb = ""
+
+    path: Path | None = None
+    if rel_or_abs:
+        raw = Path(rel_or_abs)
+        if raw.is_file():
+            path = raw
+        else:
+            for candidate in (
+                root / rel_or_abs,
+                root / Path(str(rel_or_abs).replace("\\", "/")),
+            ):
+                if candidate.is_file():
+                    path = candidate
+                    break
+
+    if path is None:
+        return fb[:1200]
+
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return fb[:1200]
+
+    if not lines:
+        return fb[:1200]
+    if not line or line < 1:
+        return "\n".join(lines[:16])[:1200]
+
+    lo = max(0, line - 1 - radius)
+    hi = min(len(lines), max(line, end_line or line) + radius)
+    window = "\n".join(lines[lo:hi]).strip("\n")
+    if window.strip():
+        return window[:1200]
+    return fb[:1200]
 
 
 def _text_exts() -> set[str]:
@@ -113,9 +167,18 @@ def analyze_workspace(
                 # Fallback static/regex only when Semgrep CE is missing / failed.
                 batch.extend(_scan_tree_fallback(workspace_id, root))
 
+            # Structure-first capabilities for Python — gates promptlint HITL/RAG.
+            caps_by_path: dict = {}
+            try:
+                from isovane_serve.code_capabilities import probe_tree
+
+                caps_by_path = probe_tree(root)
+            except Exception:  # noqa: BLE001
+                caps_by_path = {}
+
             # Always lint embedded prompts (Python system strings, *prompt* files).
             # Semgrep path filters often miss prompts inside .py agent modules.
-            batch.extend(lint_paths(workspace_id, root))
+            batch.extend(lint_paths(workspace_id, root, caps_by_path=caps_by_path or None))
             batch.extend(_bandit_scan(workspace_id, root))
             batch.extend(_detect_secrets_scan(workspace_id, root))
             batch.extend(_pii_tree(workspace_id, root))
@@ -132,6 +195,9 @@ def analyze_workspace(
                 batch.extend(scan_ast_taint(workspace_id, root))
             except Exception:  # noqa: BLE001
                 pass
+
+            # Drop promptlint HITL/RAG that still lack structural confirmation.
+            batch = _filter_promptlint_by_structure(batch, caps_by_path)
 
             try:
                 from isovane_serve.suppressions import apply_suppressions
@@ -290,7 +356,17 @@ def _semgrep_results_to_findings(
         except Exception:
             path = Path(path).name or path
         start = (item.get("start") or {}).get("line")
-        snippet = str(item.get("extra", {}).get("lines") or "")[:240]
+        end = (item.get("end") or {}).get("line")
+        raw_lines = str(item.get("extra", {}).get("lines") or "")
+        abs_path = str(item.get("path") or "")
+        snippet = _read_source_window(
+            root,
+            abs_path or path,
+            int(start) if start else None,
+            int(end) if end else None,
+            radius=5,
+            fallback=raw_lines,
+        )
         fix_kind = str(mapped.get("fix_kind") or "code")
         custom_fix = mapped.get("fix_summary")
         fix_summary = (
@@ -305,6 +381,20 @@ def _semgrep_results_to_findings(
             snippet=snippet,
             test_id=check_id,
         )
+        suggested = apply_remediation_fields(
+            title=title,
+            owasp=owasp,
+            category=category,
+            path=path,
+            existing=SuggestedFix(
+                kind=fix_kind,  # type: ignore[arg-type]
+                summary=fix_summary,
+                checklist=insight.merge_checklist(),
+            ),
+        )
+        fields = insight.as_finding_fields(owasp or None)
+        if suggested.checklist:
+            fields["solutions"] = list(suggested.checklist)
         findings.append(
             Finding(
                 workspace_id=workspace_id,
@@ -324,12 +414,8 @@ def _semgrep_results_to_findings(
                         "severity_from_tool": item.get("extra", {}).get("severity"),
                     },
                 ),
-                suggested_fix=SuggestedFix(
-                    kind=fix_kind,  # type: ignore[arg-type]
-                    summary=fix_summary,
-                    checklist=insight.merge_checklist(),
-                ),
-                **insight.as_finding_fields(owasp or None),
+                suggested_fix=suggested,
+                **fields,
             )
         )
     return findings
@@ -515,7 +601,16 @@ def _bandit_scan(workspace_id: str, root: Path) -> list[Finding]:
         severity = {"high": "high", "medium": "medium", "low": "low"}.get(sev, "medium")
         test_name = str(item.get("test_name") or "Bandit finding")
         issue_text = str(item.get("issue_text") or "")
-        snippet = (item.get("code") or "")[:240]
+        filename = str(item.get("filename") or "")
+        line_no = item.get("line_number")
+        raw_code = str(item.get("code") or "")
+        snippet = _read_source_window(
+            root,
+            filename,
+            int(line_no) if line_no else None,
+            radius=5,
+            fallback=raw_code,
+        )
         # Prefer a human title when Bandit only says "blacklist"
         title = test_name
         if test_name.lower() in {"blacklist", "blacklist_calls", "hardcoded_bind_all_interfaces"}:
@@ -526,6 +621,10 @@ def _bandit_scan(workspace_id: str, root: Path) -> list[Finding]:
                 title = "Assert used as security check"
             elif issue_text:
                 title = issue_text.split(".")[0][:80] or test_name
+        try:
+            rel_path = str(Path(filename).resolve().relative_to(root.resolve()))
+        except Exception:
+            rel_path = Path(filename).name or filename
         insight = insight_for(
             title=title,
             issue_text=issue_text,
@@ -533,6 +632,20 @@ def _bandit_scan(workspace_id: str, root: Path) -> list[Finding]:
             snippet=snippet,
             test_id=str(item.get("test_id") or ""),
         )
+        suggested = apply_remediation_fields(
+            title=title,
+            owasp=list(insight.owasp or []),
+            category="static",
+            path=rel_path,
+            existing=SuggestedFix(
+                kind="code",
+                summary=bandit_fix_summary(issue_text),
+                checklist=insight.merge_checklist(),
+            ),
+        )
+        fields = insight.as_finding_fields()
+        if suggested.checklist:
+            fields["solutions"] = list(suggested.checklist)
         findings.append(
             Finding(
                 workspace_id=workspace_id,
@@ -541,8 +654,8 @@ def _bandit_scan(workspace_id: str, root: Path) -> list[Finding]:
                 title=title,
                 category="static",
                 evidence=FindingEvidence(
-                    path=item.get("filename"),
-                    line=item.get("line_number"),
+                    path=rel_path,
+                    line=line_no,
                     snippet=snippet,
                     tool="bandit",
                     args={
@@ -553,12 +666,8 @@ def _bandit_scan(workspace_id: str, root: Path) -> list[Finding]:
                         "more_info": item.get("more_info"),
                     },
                 ),
-                suggested_fix=SuggestedFix(
-                    kind="code",
-                    summary=bandit_fix_summary(issue_text),
-                    checklist=insight.merge_checklist(),
-                ),
-                **insight.as_finding_fields(),
+                suggested_fix=suggested,
+                **fields,
             )
         )
     return findings
@@ -633,7 +742,10 @@ def _heuristic_secrets(workspace_id: str, root: Path) -> list[Finding]:
             if key_re.search(line):
                 title = "Hardcoded secret-like assignment"
                 issue_text = f"Possible secret assignment in {path.name}:{i}."
-                snippet = line.strip()[:200]
+                rel = str(path.relative_to(root))
+                snippet = _read_source_window(
+                    root, rel, i, radius=4, fallback=line.strip()[:200]
+                )
                 insight = insight_for(
                     title=title,
                     issue_text=issue_text,
@@ -648,7 +760,7 @@ def _heuristic_secrets(workspace_id: str, root: Path) -> list[Finding]:
                         title=title,
                         category="pii",
                         evidence=FindingEvidence(
-                            path=str(path.relative_to(root)),
+                            path=rel,
                             line=i,
                             snippet=snippet,
                             tool="regex-fallback",
@@ -664,6 +776,128 @@ def _heuristic_secrets(workspace_id: str, root: Path) -> list[Finding]:
                     )
                 )
     return findings
+
+
+def _norm_path(path: str | None) -> str:
+    return (path or "").replace("\\", "/").lstrip("./")
+
+
+def _path_in_set(path: str, confirmed: set[str]) -> bool:
+    p = _norm_path(path)
+    if p in confirmed:
+        return True
+    base = p.split("/")[-1]
+    return any(_norm_path(c).endswith("/" + base) or _norm_path(c) == base for c in confirmed)
+
+
+_BRIEFING_FP = re.compile(
+    r"(?is)\bwrite\b.{0,40}\b(briefing|summary|bullet|title line)\b|"
+    r"\bsummarize\b.{0,40}\b(content|document|ingest)"
+)
+_STRONG_AGENCY_EVIDENCE = re.compile(
+    r"(?is)(@tool\b|bind_tools|create_react_agent|ToolNode|tools\s*=\s*\[|"
+    r"send_email|pay_refund|run_shell|shell\s*=\s*True|os\.system|subprocess\.|"
+    r"(?:send|draft|compose|write)\s+(?:an?\s+)?emails?|"
+    r"(?:issue|process|approve|execute|pay)\s+(?:a\s+|the\s+)?refunds?|"
+    r"run\s+(?:shell|bash|commands?)|"
+    r"(?:transfer|wire)\s+(?:money|funds|payments?)|"
+    r"you (?:can|may|should|must|will).{0,80}(?:send|email|pay|refund|shell|exec|transfer|delete|money|funds))"
+)
+_STRONG_RAG_EVIDENCE = re.compile(
+    r"(?is)(similarity_search|as_retriever|get_relevant_documents|vector\s*store|"
+    r"chroma|pinecone|faiss|retrieved\s+(?:document|doc|chunk)|knowledge\s*base|"
+    r"\brag\b|\bretriever\b)"
+)
+
+
+def _filter_promptlint_by_structure(
+    batch: list[Finding],
+    caps_by_path: dict[str, Any] | None,
+) -> list[Finding]:
+    """Recall-first filter: drop only clear briefing FPs, never strip strong evidence."""
+    agency: set[str] = set()
+    rag: set[str] = set()
+    for rel, caps in (caps_by_path or {}).items():
+        p = _norm_path(rel)
+        if getattr(caps, "has_tool_agency", False):
+            agency.add(p)
+        if getattr(caps, "has_retriever", False):
+            rag.add(p)
+    for item in batch:
+        tool = (item.evidence.tool or "") if item.evidence else ""
+        path = _norm_path(item.evidence.path if item.evidence else None)
+        blob = f"{item.title} {item.summary}".lower()
+        if tool in {"ast-taint", "semgrep", "mcp-skills"}:
+            if any(
+                k in blob
+                for k in ("tool", "agency", "shell", "bind_tools", "refund", "email", "hitl")
+            ):
+                agency.add(path)
+            if any(k in blob for k in ("retriev", "rag", "vector", "chroma", "pinecone", "faiss")):
+                rag.add(path)
+
+    out: list[Finding] = []
+    for item in batch:
+        tool = (item.evidence.tool or "") if item.evidence else ""
+        # promptlint + local Semgrep prompt rules share HITL/RAG titles — same FP gates.
+        if tool not in {"promptlint", "semgrep"}:
+            out.append(item)
+            continue
+        path = _norm_path(item.evidence.path if item.evidence else None)
+        title = item.title or ""
+        snip = (item.evidence.snippet if item.evidence else None) or ""
+        evidence_blob = f"{snip} {item.summary or ''}"
+
+        # Drop only obvious summarizer FPs with no structural agency.
+        if "HITL" in title and _BRIEFING_FP.search(evidence_blob):
+            if not _path_in_set(path, agency) and not _STRONG_AGENCY_EVIDENCE.search(evidence_blob):
+                continue
+        # Drop weak Semgrep HITL when the window has no strong agency signal and AST agrees.
+        if "HITL" in title and tool == "semgrep" and path.endswith(".py"):
+            if not _path_in_set(path, agency) and not _STRONG_AGENCY_EVIDENCE.search(evidence_blob):
+                caps = None
+                if caps_by_path:
+                    caps = (
+                        caps_by_path.get(path)
+                        or caps_by_path.get(path.replace("/", "\\"))
+                        or caps_by_path.get(path.replace("\\", "/"))
+                    )
+                if caps is not None and not getattr(caps, "has_tool_agency", False):
+                    continue
+        # Drop RAG only when evidence is clearly non-retrieval (should be rare).
+        if "RAG concat" in title and not (
+            _path_in_set(path, rag) or _STRONG_RAG_EVIDENCE.search(evidence_blob)
+        ):
+            # Keep when in doubt (empty snippet / weak path) — recall over precision.
+            if snip and not _STRONG_RAG_EVIDENCE.search(snip) and path.endswith(".py"):
+                caps = None
+                if caps_by_path:
+                    caps = caps_by_path.get(path) or caps_by_path.get(path.replace("/", "\\"))
+                if caps is not None and not getattr(caps, "has_retriever", False):
+                    continue
+        out.append(item)
+    return out
+
+
+_COLLAPSE_PER_PATH = {
+    "Tools mentioned without HITL",
+    "RAG concat without trust boundary",
+    "Web search tool attached to agent",
+    "Missing PII / disclosure bounds",
+    "System prompt built in Python",
+}
+
+
+def _snippet_score(item: Finding) -> int:
+    snip = (item.evidence.snippet if item.evidence else None) or ""
+    score = len(snip)
+    if _STRONG_AGENCY_EVIDENCE.search(snip):
+        score += 500
+    if _STRONG_RAG_EVIDENCE.search(snip):
+        score += 500
+    if "\n" in snip:
+        score += 50
+    return score
 
 
 def _dedupe(findings: list[Finding]) -> list[Finding]:
@@ -683,7 +917,21 @@ def _dedupe(findings: list[Finding]) -> list[Finding]:
             continue
         seen.add(key)
         out.append(item)
-    return out
+
+    # Collapse noisy Semgrep/promptlint repeats: one HITL / RAG story per file,
+    # keeping the richest code window so Technical details stays readable.
+    best: dict[tuple[str, str], Finding] = {}
+    rest: list[Finding] = []
+    for item in out:
+        path = _norm_path(item.evidence.path if item.evidence else None)
+        if item.title in _COLLAPSE_PER_PATH and path:
+            key2 = (item.title, path)
+            prev = best.get(key2)
+            if prev is None or _snippet_score(item) > _snippet_score(prev):
+                best[key2] = item
+        else:
+            rest.append(item)
+    return rest + list(best.values())
 
 
 def to_sarif(findings: list[Finding]) -> dict[str, Any]:

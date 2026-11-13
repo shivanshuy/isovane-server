@@ -24,7 +24,9 @@ from isovane_serve.architecture_graph import (
 )
 from isovane_serve.diagram_graph import graph_from_text, parse_graph_json
 from isovane_serve.image_diagram_seeds import generic_connected_seed, seed_for_filename
+from isovane_serve.insights import insight_for
 from isovane_serve.models import Finding, FindingEvidence, SuggestedFix
+from isovane_serve.remediations import apply_remediation_fields
 from isovane_serve.workflow_inventory import inventory_as_diagram_text, inventory_from_tree
 
 ArchMode = Literal["privacy", "workflow", "both"]
@@ -261,6 +263,23 @@ def analyze_code_workflow(
         graph = (result.get("inventory") or {}).get("graph") or result.get("graph")
         if graph:
             result["inventory"]["privacy_posture"] = privacy_posture_from_graph(graph)
+    except Exception:  # noqa: BLE001
+        pass
+    # Persist Radar-class board for the workspace (survives restart).
+    try:
+        from isovane_serve.persistence import save_board
+
+        board_payload = {
+            "source": "code_inventory",
+            "folder": str(root),
+            "mode": mode,
+            "board": (result.get("inventory") or {}).get("board"),
+            "graph": (result.get("inventory") or {}).get("graph"),
+            "counts": (result.get("inventory") or {}).get("counts"),
+            "framework_graphs": (result.get("inventory") or {}).get("framework_graphs"),
+            "langgraph_graphs": (result.get("inventory") or {}).get("langgraph_graphs"),
+        }
+        save_board(workspace_id, board_payload)
     except Exception:  # noqa: BLE001
         pass
     return result
@@ -589,16 +608,34 @@ def _legacy_trust_rules(
     has_public = any(token in lower for token in ("public", "chat", "internet", "user", "web", "client"))
     has_llm = any(token in lower for token in ("llm", "model", "gpt", "claude", "agent", "openai"))
     if has_public and has_mail and has_llm:
+        title = "Untrusted mail path to agent tools"
+        summary = "Public/chat → LLM → mail suggests goal hijack / tool misuse."
+        owasp = ["ASI01", "ASI02"]
+        insight = insight_for(title=title, issue_text=summary, tool="architecture-workflow")
+        fields = insight.as_finding_fields(owasp)
+        fields["tags"] = list(dict.fromkeys([*(fields.get("tags") or []), "Workflow graph"]))
+        suggested = apply_remediation_fields(
+            title=title,
+            owasp=owasp,
+            category="architecture",
+            path=filename,
+            existing=SuggestedFix(
+                kind="architecture",
+                summary="Block send when source=email; quarantine inbound mail.",
+                checklist=insight.merge_checklist(
+                    ["Block send when source=email", "Quarantine inbound mail"]
+                ),
+            ),
+        )
+        if suggested.checklist:
+            fields["solutions"] = list(suggested.checklist)
         findings.append(
             Finding(
                 workspace_id=workspace_id,
                 source="analyze",
                 severity="high",
-                title="Untrusted mail path to agent tools",
-                summary="Public/chat → LLM → mail suggests goal hijack / tool misuse.",
-                owasp=["ASI01", "ASI02"],
+                title=title,
                 category="architecture",
-                tags=["Workflow graph"],
                 evidence=FindingEvidence(
                     path=filename,
                     diagram_region="mail-path",
@@ -606,11 +643,8 @@ def _legacy_trust_rules(
                     tool="architecture-workflow",
                     args={"analysis_mode": "workflow"},
                 ),
-                suggested_fix=SuggestedFix(
-                    kind="architecture",
-                    summary="Block send when source=email; quarantine inbound mail.",
-                    checklist=["Block send when source=email", "Quarantine inbound mail"],
-                ),
+                suggested_fix=suggested,
+                **fields,
             )
         )
     return findings

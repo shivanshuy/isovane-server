@@ -8,6 +8,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from isovane_serve.auth import ApiKeyMiddleware
 from isovane_serve.routes import router
 
 app = FastAPI(title="isovane-server", version="0.1.0")
@@ -24,6 +25,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# After CORS so preflight OPTIONS is handled; API key only when ISOVANE_API_KEY is set.
+app.add_middleware(ApiKeyMiddleware)
 
 app.include_router(router)
 

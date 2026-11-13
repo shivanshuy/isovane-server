@@ -1,4 +1,4 @@
-﻿"""Plain-English gloss + punchy jargon for finding / fix copy.
+"""Plain-English gloss + punchy jargon for finding / fix copy.
 
 Keep the interesting security phrases; explain them first so anyone can follow.
 """
@@ -133,6 +133,14 @@ def rag_trust_fix_summary() -> str:
         "RAG means retrieved documents pasted into the prompt. "
         "Untrusted delimiters mark that text as untrusted so the model must not treat it as instructions.",
         "Wrap RAG in untrusted delimiters; forbid tool use from RAG alone.",
+    )
+
+
+def prompt_context_fix_summary() -> str:
+    return gloss_then_punch(
+        "Prompt context is app/state/API data you put into the model yourself — not the same as RAG retrieval. "
+        "Trust labels tell the model that block is data, not system instructions.",
+        "Label concatenated app/state fields as data; redact before prompt; reserve 'RAG' for retrievers.",
     )
 
 

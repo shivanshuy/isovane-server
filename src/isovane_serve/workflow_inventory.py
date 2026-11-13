@@ -66,6 +66,7 @@ def inventory_from_tree(root: Path) -> dict[str, Any]:
 
     # LangGraph StateGraph add_node / add_edge → real topology (preferred over synthetic).
     lg_meta: list[dict[str, Any]] = []
+    fw_meta: list[dict[str, Any]] = []
     try:
         from isovane_serve.langgraph_inventory import langgraph_graphs_from_tree
 
@@ -83,11 +84,39 @@ def inventory_from_tree(root: Path) -> dict[str, Any]:
     except Exception:  # noqa: BLE001
         pass
 
-    # Synthetic edges for report when no LangGraph edges: UI → agents → MCP/tools → LLM
+    # CrewAI / AutoGen / OpenAI Agents → Radar-class board nodes/edges
+    try:
+        from isovane_serve.framework_inventory import framework_graphs_from_tree
+
+        fw = framework_graphs_from_tree(root)
+        fw_meta = list(fw.get("graphs") or [])
+        if fw.get("nodes"):
+            # Prefer framework-extracted agents over coarse keyword duplicates
+            coarse = {
+                "CrewAI Agent",
+                "CrewAI Crew",
+                "AutoGen agent",
+                "OpenAI Agents",
+            }
+            nodes = [n for n in nodes if n.get("label") not in coarse]
+            nodes.extend(fw["nodes"])
+            edges.extend(fw.get("edges") or [])
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Synthetic edges for report when no framework edges: UI → agents → MCP/tools → LLM
     by_kind: dict[str, list[dict[str, Any]]] = {}
     for node in nodes:
         by_kind.setdefault(node["kind"], []).append(node)
-    if not any(e.get("kind") in {"langgraph", "conditional"} for e in edges):
+    structured = {
+        "langgraph",
+        "conditional",
+        "crew→agent",
+        "crew→task",
+        "a2a",
+        "agent→tool",
+    }
+    if not any(e.get("kind") in structured for e in edges):
         for ui in by_kind.get("ui", [])[:3]:
             for agent in by_kind.get("agent", [])[:5]:
                 edges.append({"from": ui["id"], "to": agent["id"], "kind": "ui→agent"})
@@ -110,7 +139,7 @@ def inventory_from_tree(root: Path) -> dict[str, Any]:
         node.setdefault("x", 36 + col * 180)
         node.setdefault("y", 36 + row * 96)
 
-    # Refresh by_kind after LangGraph merge
+    # Refresh by_kind after framework merge
     by_kind = {}
     for node in nodes:
         by_kind.setdefault(str(node.get("kind")), []).append(node)
@@ -123,6 +152,7 @@ def inventory_from_tree(root: Path) -> dict[str, Any]:
         "by_kind": {k: [n["label"] for n in v] for k, v in by_kind.items()},
         "source": "code",
         "langgraph_graphs": lg_meta,
+        "framework_graphs": fw_meta,
         "graph": workspace,
         "board": {"nodes": nodes, "edges": edges},
     }

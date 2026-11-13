@@ -23,6 +23,7 @@ from isovane_serve.models import (
 )
 from isovane_serve.patches import accept_finding, mark_fixed, patch_for_finding
 from isovane_serve.policy import policy_from_dict
+from isovane_serve.remediations import finding_to_api_dict, hydrate_finding
 from isovane_serve.repo import cleanup_temp, extract_archive, resolve_source
 from isovane_serve.scan import analyze_workspace, to_sarif
 from isovane_serve.simulate import run_pack
@@ -135,6 +136,18 @@ def get_workspace(workspace_id: str):
     item = _require_workspace(workspace_id)
     stats = store.gate_stats(workspace_id)
     return {**item, "gate": stats}
+
+
+@router.get("/workspaces/{workspace_id}/board")
+def get_workspace_board(workspace_id: str):
+    """Return last Radar-class board persisted from code/diagram analyze."""
+    _require_workspace(workspace_id)
+    from isovane_serve.persistence import get_board
+
+    board = get_board(workspace_id)
+    if board is None:
+        raise HTTPException(status_code=404, detail="No board saved for this workspace yet")
+    return {"workspace_id": workspace_id, **board}
 
 
 @router.patch("/workspaces/{workspace_id}")
@@ -326,7 +339,8 @@ def _run_analyze_job(
             text_blobs=texts or [],
         )
         for finding in findings:
-            store.add_finding(finding)
+            # Persist YAML remediations onto the finding so Details / Code Fix both see them.
+            store.add_finding(hydrate_finding(finding))
         job.finding_ids = [f.id for f in findings]
         job.status = "done"
         job.finished_at = utc_now()
@@ -334,7 +348,7 @@ def _run_analyze_job(
         job.status = "failed"
         job.error = str(exc)
         job.finished_at = utc_now()
-        store.SCAN_JOBS[job.id] = job
+        store.put_job(job)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 — surface in job
         job.status = "failed"
@@ -342,10 +356,14 @@ def _run_analyze_job(
         job.finished_at = utc_now()
     finally:
         cleanup_temp(temp_dir)
-    store.SCAN_JOBS[job.id] = job
+    store.put_job(job)
     return {
         "job": job.model_dump(),
-        "findings": [store.FINDINGS[fid].model_dump() for fid in job.finding_ids],
+        "findings": [
+            finding_to_api_dict(store.FINDINGS[fid])
+            for fid in job.finding_ids
+            if fid in store.FINDINGS
+        ],
     }
 
 
@@ -420,7 +438,7 @@ async def analyze_diagram_route(
             format_hint=format,
             mode=arch_mode,  # type: ignore[arg-type]
         )
-    findings = result["findings"]
+    findings = [hydrate_finding(f) for f in result["findings"]]
     for finding in findings:
         store.add_finding(finding)
     job = ScanJob(
@@ -463,7 +481,7 @@ def analyze_diagram_json(body: DiagramRequest):
             mode=arch_mode,  # type: ignore[arg-type]
             graph=body.graph,
         )
-    findings = result["findings"]
+    findings = [hydrate_finding(f) for f in result["findings"]]
     for finding in findings:
         store.add_finding(finding)
     return {
@@ -481,7 +499,7 @@ def get_analyze_job(job_id: str):
     return {
         "job": job.model_dump(),
         "findings": [
-            store.FINDINGS[fid].model_dump()
+            finding_to_api_dict(store.FINDINGS[fid])
             for fid in job.finding_ids
             if fid in store.FINDINGS
         ],
@@ -494,7 +512,12 @@ def get_findings(
     status: str | None = None,
 ):
     rows = store.list_findings(workspace_id=workspace_id, status=status)
-    return {"findings": [f.model_dump() for f in rows]}
+    # Hydrate on read so issue Details always show industry remediations,
+    # even for findings created before remediations.yaml existed.
+    hydrated = [hydrate_finding(f) for f in rows]
+    for item in hydrated:
+        store.FINDINGS[item.id] = item
+    return {"findings": [f.model_dump() for f in hydrated]}
 
 
 @router.get("/findings/{finding_id}")
@@ -502,7 +525,9 @@ def get_finding(finding_id: str):
     item = store.FINDINGS.get(finding_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Finding not found")
-    return item.model_dump()
+    hydrated = hydrate_finding(item)
+    store.FINDINGS[finding_id] = hydrated
+    return hydrated.model_dump()
 
 
 @router.patch("/findings/{finding_id}")
@@ -510,7 +535,7 @@ def patch_finding_route(finding_id: str, body: FindingPatch):
     item = store.patch_finding(finding_id, status=body.status)
     if item is None:
         raise HTTPException(status_code=404, detail="Finding not found")
-    return item.model_dump()
+    return finding_to_api_dict(item)
 
 
 @router.post("/hunt/run")

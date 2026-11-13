@@ -1,5 +1,7 @@
 # Prompt / policy text rules (generic) — Isovane-authored.
 # Composed at scan time with Semgrep Registry p/ai-best-practices (2A).
+# Keep HITL / RAG patterns aligned with promptlint recall-first heuristics:
+# never flag English verbs like "Write a briefing", and never treat {context} as RAG.
 rules:
   - id: isovane.prompt.jailbreak-invite
     languages: [generic]
@@ -42,11 +44,10 @@ rules:
         - "*system*"
     patterns:
       - pattern-either:
-          - pattern-regex: \{[^}]*rag[^}]*\}
-          - pattern-regex: \{\{\s*context\s*\}\}
-          - pattern-regex: \{context\}
-          - pattern-regex: (?i)retrieved (document |doc )?excerpts
-      - pattern-not-regex: (?i)\b(untrusted|trust\s+boundary|do\s+not\s+trust)\b
+          - pattern-regex: (?i)\b(rag|vector\s*(?:store|db|database|search)|knowledge\s*base|chroma|pinecone|faiss|docstore|similarity[_\s-]?search)\b
+          - pattern-regex: (?i)retrieved\s+(?:document|doc|chunk|passage|excerpt)s?
+          - pattern-regex: \{[^}]*\brag\b[^}]*\}
+      - pattern-not-regex: (?i)\b(untrusted|trust\s+boundary|do\s+not\s+trust|BEGIN[_\s-]?UNTRUSTED)\b
 
   - id: isovane.prompt.missing-pii-bounds
     languages: [generic]
@@ -86,8 +87,22 @@ rules:
         - "*prompt*"
         - "*system*"
     patterns:
-      - pattern-regex: (?i)\b(send|email|pay|refund|shell|exec|write|tool|search|duckduckgo|browse)\b
-      - pattern-not-regex: (?i)\b(confirm|human|approval|hitl)\b
+      - pattern-either:
+          # Structural / wiring signals (same family as promptlint + AST)
+          - pattern-regex: (?i)\b(bind_tools|create_react_agent|ToolNode|@tool|tools\s*=\s*\[)
+          - pattern-regex: (?i)\b(send_email|pay_refund|run_shell|execute_command|duckduckgo_search)\b
+          - pattern-regex: (?i)\bshell\s*=\s*True\b
+          # Capability prose — not bare verbs like "Write a briefing" / re.search
+          - pattern-regex: (?i)\byou (?:can|may|should|must|will)\b.{0,80}\b(send|email|pay|refund|shell|exec|transfer|delete|money|funds)\b
+          - pattern-regex: (?i)\b(send|draft|compose|write)\s+(an?\s+)?emails?\b
+          - pattern-regex: (?i)\b(issue|process|approve|execute|pay)\s+(a\s+|the\s+)?refunds?\b
+          - pattern-regex: (?i)\brun\s+(shell|bash|commands?)\b
+          - pattern-regex: (?i)\b(transfer|wire)\s+(money|funds|payments?)\b
+          - pattern-regex: (?i)\b(call|invoke|use)\s+(the\s+)?(refund|payment|shell|email)\s+tool\b
+          - pattern-regex: (?i)\b(refund|payment|shell|email)\s+tool\b
+          - pattern-regex: (?i)\bconsequential tools?\b|\bside[- ]effects?\b
+      - pattern-not-regex: (?i)\b(hitl|human-in-the-loop|human in the loop|confirm|approval)\b
+      - pattern-not-regex: (?i)\bwrite\b.{0,40}\b(briefing|summary|bullet|title line)\b
 
   - id: isovane.prompt.system-disclosure
     languages: [generic]

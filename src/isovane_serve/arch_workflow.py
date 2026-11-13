@@ -7,6 +7,7 @@ from typing import Any
 from isovane_serve.insights import insight_for
 from isovane_serve.kinds import a2a_tokens, kind_for_label, kind_tokens
 from isovane_serve.models import Finding, FindingEvidence, SuggestedFix
+from isovane_serve.remediations import apply_remediation_fields
 
 __all__ = [
     "analyze_workflow",
@@ -63,6 +64,64 @@ def analyze_workflow(
     has_auth = any(t in lower for t in ("auth", "oauth", "mtls", "jwt", "signed", "acl", "rbac"))
     has_shell = any(t in lower for t in ("shell", "exec", "bash", "powershell", "code interpreter"))
     wildcard = "*" in text or "all tools" in lower or "tools=*" in lower or "permissions: *" in lower
+    # OWASP ASI diagram markers (keyword presence only — recall-first).
+    has_memory = any(
+        t in lower
+        for t in (
+            "long-term memory",
+            "agent memory",
+            "memory store",
+            "vector store",
+            "vector db",
+            "conversation store",
+            "checkpoint store",
+        )
+    )
+    has_memory_guard = any(
+        t in lower
+        for t in (
+            "memory validation",
+            "memory guard",
+            "memory provenance",
+            "segmented memory",
+            "memory allow",
+        )
+    )
+    has_policy_gate = any(
+        t in lower
+        for t in (
+            "policy gate",
+            "intent gate",
+            "policy engine",
+            "policy enforcement",
+            "tool gateway",
+            "guardrail middleware",
+        )
+    )
+    has_breaker = any(
+        t in lower
+        for t in (
+            "circuit breaker",
+            "rate limit",
+            "rate-limit",
+            "kill switch",
+            "blast radius",
+            "tool budget",
+            "token budget",
+        )
+    )
+    has_agent_identity = any(
+        t in lower
+        for t in (
+            "per-agent identity",
+            "agent identity",
+            "workload identity",
+            "spiffe",
+            "short-lived",
+            "jit credential",
+            "task-scoped",
+        )
+    )
 
     if has_ui and has_agent and not has_hitl and (has_tool or has_mcp or has_shell):
         findings.append(
@@ -219,6 +278,98 @@ def analyze_workflow(
             )
         )
 
+    if has_agent and has_memory and not has_memory_guard:
+        findings.append(
+            _finding(
+                workspace_id,
+                filename,
+                "Agent memory / long-term context without validation",
+                (
+                    "Durable agent memory / vector context appears without validation, segmentation, "
+                    "or provenance on the board (OWASP ASI06 Memory & Context Poisoning)."
+                ),
+                ["ASI06", "LLM08"],
+                "high",
+                [
+                    "Validate memory writes before commit",
+                    "Segment memory by user/session/domain",
+                    "Require provenance and TTL on durable context",
+                ],
+                "Add a memory-validation edge and segmented stores before agents read long-term context.",
+                tags=["Workflow graph", "Memory"],
+                region="agent⇄memory",
+            )
+        )
+
+    if has_agent and (has_tool or has_mcp or has_shell) and not has_policy_gate:
+        findings.append(
+            _finding(
+                workspace_id,
+                filename,
+                "Missing external policy / intent gate before tools",
+                (
+                    "Tools/MCP are reachable from the agent without an external policy / intent gate "
+                    "(OWASP ASI02 Policy Enforcement Middleware). Prompt-only controls are not enough."
+                ),
+                ["ASI02", "LLM06"],
+                "high",
+                [
+                    "Insert a policy/intent gate (PEP) between planner and tools",
+                    "Validate schema + rate limits; issue short-lived credentials",
+                    "Fail closed on unknown tools or missing approval",
+                ],
+                "Separate planning from execution with an external policy enforcement point.",
+                tags=["Workflow graph", "Policy gate"],
+                region="planner→tools",
+            )
+        )
+
+    if (has_a2a or agent_count >= 2) and not has_breaker:
+        findings.append(
+            _finding(
+                workspace_id,
+                filename,
+                "Multi-agent path without circuit breaker / rate limits",
+                (
+                    "Multi-agent fan-out is present without circuit breaker, rate limit, budget, or "
+                    "kill-switch markers (OWASP ASI08 Cascading Failures)."
+                ),
+                ["ASI08"],
+                "high",
+                [
+                    "Add circuit breakers / quotas between planner and executor",
+                    "Rate-limit anomalous cross-agent fan-out",
+                    "Keep tamper-evident logs of inter-agent actions",
+                ],
+                "Cap blast radius with breakers and budgets on every multi-agent edge.",
+                tags=["Workflow graph", "Cascading failures"],
+                region="multi-agent",
+            )
+        )
+
+    if has_agent and (has_tool or has_mcp) and not has_agent_identity and not has_auth:
+        findings.append(
+            _finding(
+                workspace_id,
+                filename,
+                "Agent tools without per-agent identity / scoped credentials",
+                (
+                    "Agents reach tools/MCP without per-agent identity or task-scoped credentials on "
+                    "the board (OWASP ASI03 Identity & Privilege Abuse)."
+                ),
+                ["ASI03"],
+                "high",
+                [
+                    "Assign each agent its own identity",
+                    "Issue short-lived, task-scoped tokens — not a shared key",
+                    "Re-authorize each privileged tool call in a policy engine",
+                ],
+                "Label per-agent identities and JIT credentials on every tool edge.",
+                tags=["Workflow graph", "Identity"],
+                region="agent→tools-identity",
+            )
+        )
+
     if not findings and text.strip():
         findings.append(
             _finding(
@@ -298,6 +449,19 @@ def _finding(
     insight = insight_for(title=title, issue_text=summary, tool="architecture-workflow")
     fields = insight.as_finding_fields(owasp)
     fields["tags"] = list(dict.fromkeys([*(fields.get("tags") or []), *tags]))
+    suggested = apply_remediation_fields(
+        title=title,
+        owasp=owasp,
+        category="architecture",
+        path=filename,
+        existing=SuggestedFix(
+            kind="architecture",
+            summary=fix_summary,
+            checklist=insight.merge_checklist(checklist),
+        ),
+    )
+    if suggested.checklist:
+        fields["solutions"] = list(suggested.checklist)
     return Finding(
         workspace_id=workspace_id,
         source="analyze",
@@ -311,10 +475,6 @@ def _finding(
             tool="architecture-workflow",
             args={"analysis_mode": "workflow"},
         ),
-        suggested_fix=SuggestedFix(
-            kind="architecture",
-            summary=fix_summary,
-            checklist=insight.merge_checklist(checklist),
-        ),
+        suggested_fix=suggested,
         **fields,
     )

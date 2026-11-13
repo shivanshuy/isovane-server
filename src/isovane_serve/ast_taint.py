@@ -385,8 +385,13 @@ def _hit(
     severity: str = "high",
     rule_id: str = "ast-taint",
 ) -> Finding:
-    snippet = lines[lineno - 1].strip() if 0 < lineno <= len(lines) else ""
-    insight = insight_for(title=title, issue_text=summary, tool="ast-taint")
+    if 0 < lineno <= len(lines):
+        lo = max(0, lineno - 1 - 5)
+        hi = min(len(lines), lineno + 5)
+        snippet = "\n".join(lines[lo:hi])[:1200]
+    else:
+        snippet = ""
+    insight = insight_for(title=title, issue_text=summary, tool="ast-taint", snippet=snippet)
     return Finding(
         workspace_id=workspace_id,
         source="analyze",
@@ -399,7 +404,7 @@ def _hit(
             tool="ast-taint",
             path=rel,
             line=lineno,
-            snippet=snippet[:240],
+            snippet=snippet,
             args={"rule_id": rule_id},
         ),
         suggested_fix=SuggestedFix(

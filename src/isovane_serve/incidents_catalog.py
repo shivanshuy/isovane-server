@@ -497,6 +497,121 @@ DEFAULT_LLM: list[IncidentDict] = [
 ]
 
 
+def incidents_for_architecture(blob: str) -> list[IncidentDict]:
+    """Real incident sets for architecture/diagram findings.
+
+    Never fall through to classic AppSec catalogs (open bind, SSRF, git secrets) —
+    those stories confuse diagram-control gaps. Prefer agentic / privacy cases.
+    """
+    b = blob.lower()
+    if any(k in b for k in ("mcp", "model context")):
+        return list(MCP_SUPPLY)
+    if any(
+        k in b
+        for k in (
+            "memory",
+            "long-term context",
+            "context poisoning",
+            "vector store",
+        )
+    ):
+        return list(RAG_TRUST)
+    if any(
+        k in b
+        for k in (
+            "mail path",
+            "email",
+            "echoleak",
+        )
+    ):
+        return list(RAG_TRUST)
+    if any(
+        k in b
+        for k in (
+            "shell",
+            "code-execution",
+            "code execution",
+            "code interpreter",
+            "os-level agency",
+        )
+    ):
+        return list(EXCESSIVE_AGENCY)
+    if any(
+        k in b
+        for k in (
+            "circuit breaker",
+            "cascading",
+            "rate limit",
+            "blast radius",
+            "policy gate",
+            "intent gate",
+            "per-agent identity",
+            "scoped credentials",
+            "swarm",
+        )
+    ):
+        return list(EXCESSIVE_AGENCY)
+    if any(
+        k in b
+        for k in (
+            "hitl",
+            "agency",
+            "wildcard",
+            "unrestricted tools",
+            "a2a",
+            "agent-to-agent",
+            "agent to agent",
+            "confirm",
+            "approval",
+        )
+    ):
+        return list(EXCESSIVE_AGENCY)
+    if any(
+        k in b
+        for k in (
+            "trust-boundary",
+            "trust boundary",
+            "untrusted",
+            "prompt injection",
+            "ingress",
+            "jailbreak",
+        )
+    ):
+        return list(PROMPT_INJECTION)
+    if any(
+        k in b
+        for k in (
+            "rag",
+            "retrieved",
+            "vector store",
+            "knowledge base",
+        )
+    ):
+        return list(RAG_TRUST)
+    if any(
+        k in b
+        for k in (
+            "privacy",
+            "residency",
+            "egress",
+            "multi-cloud",
+            "label",
+            "unclassified",
+            "pii",
+            "vendor cloud",
+            "cloud llm",
+            "zdr",
+            "openai",
+            "anthropic",
+            "bedrock",
+        )
+    ):
+        return list(PII_LLM)
+    if any(k in b for k in ("chatbot", "refund", "price")):
+        return list(CHATBOT_AGENCY)
+    return list(DEFAULT_LLM)
+
+
 def incidents_for_blob(blob: str) -> list[IncidentDict]:
     """Pick the richest matching real-incident set for a finding blob."""
     b = blob.lower()
@@ -510,7 +625,20 @@ def incidents_for_blob(blob: str) -> list[IncidentDict]:
         return list(SHELL_INJECTION)
     if any(k in b for k in ("mcp", "model context")):
         return list(MCP_SUPPLY)
-    if any(k in b for k in ("rag", "retrieved", "trust boundary", "vector")):
+    if any(
+        k in b
+        for k in (
+            "rag",
+            "retrieved",
+            "vector store",
+            "vector db",
+            "knowledge base",
+            "chroma",
+            "pinecone",
+            "faiss",
+            "docstore",
+        )
+    ):
         return list(RAG_TRUST)
     if any(k in b for k in ("jailbreak", "ignore previous", "prompt injection", "indirect")):
         return list(PROMPT_INJECTION)

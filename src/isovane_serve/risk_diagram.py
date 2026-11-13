@@ -9,6 +9,7 @@ from typing import Any
 
 from isovane_serve.http_client import post_json
 from isovane_serve.insights import insight_for
+from isovane_serve.remediations import apply_remediation_fields
 from isovane_serve.model_config import (
     active_provider,
     arc_image_analyze_model,
@@ -162,6 +163,19 @@ def _parse_findings(
         insight = insight_for(title=title, issue_text=summary, tool="architecture-llm")
         fields = insight.as_finding_fields(owasp or ["LLM01"])
         fields["tags"] = list(dict.fromkeys([*(fields.get("tags") or []), *tags, "LLM analyze"]))
+        suggested = apply_remediation_fields(
+            title=title[:160],
+            owasp=owasp or ["LLM01"],
+            category="architecture",
+            path=filename,
+            existing=SuggestedFix(
+                kind="architecture",
+                summary=fix_summary[:240],
+                checklist=insight.merge_checklist(checklist),
+            ),
+        )
+        if suggested.checklist:
+            fields["solutions"] = list(suggested.checklist)
         out.append(
             Finding(
                 workspace_id=workspace_id,
@@ -176,11 +190,7 @@ def _parse_findings(
                     tool="architecture-llm",
                     args={"analysis_mode": "llm", "engine": "arc_image_analyze"},
                 ),
-                suggested_fix=SuggestedFix(
-                    kind="architecture",
-                    summary=fix_summary[:240],
-                    checklist=insight.merge_checklist(checklist),
-                ),
+                suggested_fix=suggested,
                 **fields,
             )
         )

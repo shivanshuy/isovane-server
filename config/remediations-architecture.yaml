@@ -1,0 +1,511 @@
+# Architecture / diagram remediations (board-level fixes).
+# Loaded alongside remediations.yaml — source keys resolve against that file's `sources:`.
+# `source` on each suggestion is for maintainers only — never show it in the UI.
+
+remediations:
+- id: arch-hitl-gate
+  match:
+    titles:
+    - UI → agent → tools without HITL gate
+    title_contains:
+    - without hitl gate
+    - ui → agent → tools
+    owasp:
+    - LLM06
+    - ASI09
+    categories:
+    - architecture
+  kind: architecture
+  summary: Put HITL on the board between the agent and consequential tools (OWASP LLM06 / ASI).
+  suggestions:
+  - text: Insert an explicit HITL/approval node before send/pay/shell/MCP side-effects on the diagram.
+    source: owasp_llm06
+  - text: Keep the gate outside the model (sidecar / policy) — prompt-only confirm is not enough.
+    source: owasp_cs_agent
+  - text: Treat RAG/email as untrusted — require confirm when the source is not the signed-in user.
+    source: owasp_llm06
+  - text: 'ATLAS AML.M0029: human-in-the-loop for AI agent actions, scaled to consequence.'
+    source: mitre_atlas
+  - text: Re-run Architecture (workflow) analyze after adding the HITL edge.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - UI → Agent → Tools/MCP
+    + UI → Agent → HITL/approval → Tools/MCP
+    + # Deny edge when source=rag|email and tool ∈ {pay,send,shell,write}
+- id: arch-a2a-auth
+  match:
+    titles:
+    - Agent-to-agent edge without auth / identity
+    title_contains:
+    - agent-to-agent edge
+    - a2a
+    owasp:
+    - ASI07
+    categories:
+    - architecture
+  kind: architecture
+  summary: Authenticate every agent-to-agent edge — never trust peers by network alone (ASI07).
+  suggestions:
+  - text: Add mutual auth (mTLS / signed messages) between agents on the board.
+    source: owasp_asi
+  - text: Deny unsigned A2A calls; fail closed when identity is missing.
+    source: owasp_cs_agent
+  - text: Scope tools per agent identity — do not inherit peer privileges blindly.
+    source: owasp_asi
+  - text: Re-run Architecture analyze after labeling A2A auth.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - AgentA ----→ AgentB
+    + AgentA —mTLS/signed→ AgentB
+    + # tools scoped by agent identity
+- id: arch-mcp-path
+  match:
+    titles:
+    - MCP servers on the agent path — verify allow-list
+    - MCP edge lacks auth / trust boundary marker
+    title_contains:
+    - mcp servers on the agent path
+    - mcp edge lacks auth
+    owasp:
+    - ASI04
+    - LLM06
+    categories:
+    - architecture
+  kind: architecture
+  summary: Treat MCP as supply-chain + agency — pin, allow-list, authenticate, gate (ASI04).
+  suggestions:
+  - text: Pin MCP package versions; prefer allow-listed servers on the diagram.
+    source: owasp_asi
+  - text: Authenticate MCP clients; isolate MCP on a private network / trust zone.
+    source: csa_agentic
+  - text: Require HITL for high-impact MCP tools (write, email, payments, shell).
+    source: owasp_llm06
+  - text: Scan skills/configs for tool poisoning; treat MCP tool defs as untrusted (ATLAS).
+    source: mitre_atlas
+  - text: Re-run Architecture analyze after updating MCP edges.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - Agent → MCP(*) → Tools
+    + Agent → MCP(allow-listed, pinned, authn) → Tools
+    + # HITL before write/email/pay/shell MCP tools
+- id: arch-wildcard-tools
+  match:
+    titles:
+    - Wildcard / unrestricted tools on agent
+    title_contains:
+    - unrestricted tools on agent
+    - wildcard / unrestricted
+    owasp:
+    - LLM06
+    - ASI03
+    categories:
+    - architecture
+  kind: architecture
+  summary: Replace wildcard tool permissions with an explicit allow-list on the board (OWASP / CSA).
+  suggestions:
+  - text: Replace * / "all tools" with an explicit tool allow-list per agent role.
+    source: owasp_llm06
+  - text: Split read-only vs consequential agents on the diagram.
+    source: csa_agentic
+  - text: Require HITL for send / pay / shell / write even on allow-listed tools.
+    source: owasp_llm06
+  - text: Re-run Architecture analyze after enumerating tools.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - Agent tools: *
+    + Agent tools: [search, list_orders]
+    + Consequential agent → HITL → [refund, email]
+- id: arch-shell-tool
+  match:
+    titles:
+    - Shell / code-execution tool in workflow graph
+    title_contains:
+    - shell / code-execution
+    - code-execution tool in workflow
+    owasp:
+    - ASI05
+    - LLM06
+    categories:
+    - architecture
+  kind: architecture
+  summary: Drop or heavily gate shell/code-interpreter nodes in production workflows (ASI05).
+  suggestions:
+  - text: Remove shell from prod agents, or run in a sandbox with no secrets and egress allow-lists.
+    source: owasp_asi
+  - text: Require HITL before every shell/code-interpreter invoke.
+    source: owasp_llm06
+  - text: Never pass raw chat/RAG into a shell string (ASVS).
+    source: owasp_asvs
+  - text: Re-run Architecture analyze after gating or removing the shell node.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - Agent → Shell/exec
+    + Agent → HITL → Sandboxed code interpreter (no secrets, egress allow-list)
+    + # or remove Shell node from production
+- id: arch-trust-boundary
+  match:
+    titles:
+    - Missing trust-boundary label on UI ingress
+    title_contains:
+    - trust-boundary label
+    - trust boundary label
+    - ui ingress
+    owasp:
+    - LLM01
+    - ASI01
+    categories:
+    - architecture
+  kind: architecture
+  summary: Mark UI/chat as untrusted ingress on the board (OWASP LLM01).
+  suggestions:
+  - text: Annotate UI/chat → agent as an untrusted source on the diagram.
+    source: owasp_llm01
+  - text: Strip instruction-like content before tool policy (deterministic gate).
+    source: owasp_cs_prompt
+  - text: Enforce source=user|web|rag in the gate — not only in the system prompt.
+    source: ncsc_prompt
+  - text: Re-run Architecture analyze after labeling the trust boundary.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - UI → Agent
+    + UI [UNTRUSTED] → Agent
+    + # gate: source tag required before tools
+- id: arch-privacy-labels
+  match:
+    titles:
+    - Privacy architecture needs cloud labels
+    title_contains:
+    - privacy architecture needs
+    - cloud labels
+    - could not map org
+    owasp:
+    - ASI10
+    categories:
+    - architecture
+  kind: architecture
+  summary: Label vendor + region and data class on every LLM hop so privacy analysis can run.
+  suggestions:
+  - text: Annotate each model node with vendor + region (OpenAI, Anthropic, Bedrock…).
+    source: owasp_llm02
+  - text: Mark PII stores and any redact/ZDR/DLP controls on the diagram.
+    source: owasp_cs_modelops
+  - text: Re-run Architecture (privacy) analyze after labeling.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - Org data → LLM
+    + Org data → [redact/DLP] → LLM (vendor=…, region=…, ZDR=yes/no)
+- id: arch-privacy-egress
+  match:
+    titles:
+    - Organizational data egress to LLM vendor clouds
+    - Multi-cloud LLM fan-out increases privacy surface
+    - Customer/PII path to cloud LLM without redact/DLP
+    - No zero-data-retention / no-training marker on LLM edge
+    title_contains:
+    - multi-cloud llm
+    - data egress to llm
+    - without redact
+    - zero-data-retention
+    - no-training marker
+    owasp:
+    - ASI10
+    - LLM02
+    categories:
+    - architecture
+  kind: architecture
+  summary: Control org→LLM cloud egress with redact, residency labels, and HITL/DLP on PII edges.
+  suggestions:
+  - text: Minimize and redact payloads before any cloud LLM hop.
+    source: owasp_llm02
+  - text: Document vendor + region on every model node; prefer ZDR / no-train tiers where required.
+    source: owasp_cs_modelops
+  - text: Add HITL or DLP gates on edges that carry PII or secrets.
+    source: owasp_asi
+  - text: Re-run Architecture (privacy) analyze after updating egress controls.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - App → Cloud LLM (unlabeled)
+    + App → redact/DLP → Cloud LLM (vendor+region, ZDR)
+    + # HITL on PII/secret edges
+- id: arch-multi-agent-swarm
+  match:
+    titles:
+    - Multi-agent swarm without supervisor HITL
+    title_contains:
+    - multi-agent swarm
+    - supervisor hitl
+    owasp:
+    - LLM06
+    - ASI09
+    - ASI08
+    categories:
+    - architecture
+  kind: architecture
+  summary: Designate a supervisor/HITL before multi-agent side-effects (OWASP ASI08/ASI09).
+  suggestions:
+  - text: Add a supervisor or human approval node before any agent may invoke consequential MCP/tools.
+    source: owasp_asi
+  - text: Limit which agents may call MCP or high-impact tools — least agency per role.
+    source: owasp_llm06
+  - text: 'ASI08: human gates / governance checkpoints before agent outputs propagate downstream.'
+    source: owasp_asi
+  - text: Re-run Architecture (workflow) analyze after adding supervisor HITL.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - AgentA / AgentB / AgentC → Tools
+    + AgentA / AgentB / AgentC → Supervisor HITL → Tools/MCP
+- id: arch-workflow-labels
+  match:
+    titles:
+    - Workflow graph needs agent / MCP / UI labels
+    title_contains:
+    - workflow graph needs
+    - agent / mcp / ui labels
+    owasp:
+    - ASI10
+    categories:
+    - architecture
+  kind: architecture
+  summary: Label UI, agents, MCP, tools, and HITL so trust and agency edges can be scored.
+  suggestions:
+  - text: Name each agent and list MCP servers and tools on the diagram.
+    source: owasp_cs_agent
+  - text: Mark HITL/auth/trust-boundary nodes if present (Agentic Radar–style inventory).
+    source: owasp_asi
+  - text: Re-run Architecture (workflow) analyze after labeling.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - (unlabeled boxes)
+    + UI → Agent(s) → MCP/Tools → Data
+    + # annotate auth / HITL / trust zones
+- id: arch-observability-egress
+  match:
+    titles:
+    - Observability sink may duplicate prompt data outside org
+    title_contains:
+    - observability sink
+    - prompt data outside
+    - duplicate prompt
+    owasp:
+    - LLM02
+    categories:
+    - architecture
+  kind: architecture
+  summary: Treat traces/APM as a second egress channel — redact or keep in-residency (OWASP LLM02).
+  suggestions:
+  - text: Redact traces; disable raw prompt/completion capture in production.
+    source: owasp_llm02
+  - text: Keep observability in the same residency zone as the app; treat trace stores as DPA in-scope.
+    source: owasp_cs_modelops
+  - text: Re-run Architecture (privacy) analyze after updating logging controls.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - LLM → APM (full prompts)
+    + LLM → redact spans → APM (same residency; no raw prompts in prod)
+- id: arch-saas-llm-processors
+  match:
+    titles:
+    - SaaS data store → LLM cloud crosses two processors
+    title_contains:
+    - crosses two processors
+    - saas data store
+    owasp:
+    - LLM02
+    - ASI10
+    categories:
+    - architecture
+  kind: architecture
+  summary: Map every SaaS→app→LLM hop as a separate processor with lawful basis / SCCs.
+  suggestions:
+  - text: Draw processor vs controller roles on the diagram for each cloud hop.
+    source: owasp_llm02
+  - text: Minimize fields pulled from SaaS before prompting the LLM.
+    source: owasp_cs_modelops
+  - text: Document lawful basis and SCCs for every cross-cloud hop.
+    source: owasp_llm02
+  - text: Re-run Architecture (privacy) analyze after labeling processors.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - SaaS DB → App → LLM (unlabeled processors)
+    + SaaS DB [processor] → App [controller] → redact → LLM [processor + DPA/SCC]
+- id: arch-self-host-isolation
+  match:
+    titles:
+    - Self-hosted model path reduces egress — verify isolation
+    title_contains:
+    - self-hosted model
+    - verify isolation
+    owasp:
+    - LLM02
+    categories:
+    - architecture
+  kind: architecture
+  summary: Treat self-host GPUs as a high-trust enclave — isolation still required (OWASP LLM02).
+  suggestions:
+  - text: Keep the inference NIC off the public internet; require IAM + disk encryption.
+    source: owasp_cs_modelops
+  - text: Separate tenancy for regulated workloads; do not share GPU hosts casually.
+    source: owasp_llm02
+  - text: Re-run Architecture (privacy) analyze after documenting isolation controls.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - App → Local GPU LLM (unlabeled)
+    + App → Local GPU LLM [private NIC, IAM, encrypted disk, tenancy]
+- id: arch-mail-path
+  match:
+    titles:
+    - Untrusted mail path to agent tools
+    title_contains:
+    - untrusted mail path
+    - mail path to agent
+    owasp:
+    - ASI01
+    - ASI02
+    - LLM01
+    categories:
+    - architecture
+  kind: architecture
+  summary: Quarantine inbound mail and block send tools when source=email (OWASP ASI01/ASI02).
+  suggestions:
+  - text: Mark mail/chat ingress as untrusted; strip instruction-like content before tool policy.
+    source: owasp_llm01
+  - text: Block send/refund/shell when source=email unless a human confirms the exact action.
+    source: owasp_llm06
+  - text: Quarantine inbound mail corpora before RAG/agent context (ASI06 memory hygiene).
+    source: owasp_asi
+  - text: Re-run Architecture analyze after labeling the mail path.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - Public/Mail → LLM → Send mail
+    + Public/Mail [UNTRUSTED] → quarantine/strip → Agent → HITL → Send
+- id: arch-memory-poisoning
+  match:
+    titles:
+    - Agent memory / long-term context without validation
+    title_contains:
+    - memory / long-term
+    - memory without validation
+    - long-term context without
+    owasp:
+    - ASI06
+    - LLM08
+    categories:
+    - architecture
+  kind: architecture
+  summary: Validate and segment memory writes — never trust durable context blindly (OWASP ASI06).
+  suggestions:
+  - text: 'ASI06: scan memory writes and model outputs before commit (rules + classifiers).'
+    source: owasp_asi
+  - text: Segment memory by user/session/domain; wipe or expire untrusted context between tasks.
+    source: owasp_asi
+  - text: Require source attribution / provenance on durable memory; detect anomalous update rates.
+    source: mitre_atlas
+  - text: Encrypt memory at rest; least-privilege access to the store.
+    source: owasp_asvs
+  - text: Re-run Architecture analyze after adding memory validation edges.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - Agent ⇄ Memory (unchecked writes)
+    + Agent → validate/provenance → Memory (segmented, TTL, least privilege)
+- id: arch-policy-intent-gate
+  match:
+    titles:
+    - Missing external policy / intent gate before tools
+    title_contains:
+    - policy / intent gate
+    - intent gate before tools
+    - missing external policy
+    owasp:
+    - ASI02
+    - LLM06
+    categories:
+    - architecture
+  kind: architecture
+  summary: Put a policy enforcement point outside the model before every tool call (OWASP ASI02).
+  suggestions:
+  - text: 'ASI02: Policy Enforcement Middleware (intent gate) — treat planner/tool calls as untrusted.'
+    source: owasp_asi
+  - text: Validate schema, rate limits, and short-lived credentials in the gate — fail closed.
+    source: owasp_cs_agent
+  - text: Separate planning from execution so a hijacked plan cannot directly invoke tools.
+    source: owasp_asi
+  - text: Re-run Architecture analyze after inserting the policy gate node.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - Agent planner → Tools
+    + Agent planner → Policy/intent gate (PEP) → Tools
+- id: arch-cascading-failures
+  match:
+    titles:
+    - Multi-agent path without circuit breaker / rate limits
+    title_contains:
+    - without circuit breaker
+    - cascading
+    - rate limits
+    owasp:
+    - ASI08
+    categories:
+    - architecture
+  kind: architecture
+  summary: Contain blast radius with circuit breakers, quotas, and rate limits (OWASP ASI08).
+  suggestions:
+  - text: 'ASI08: add circuit breakers / quotas between planner and executor to cap blast radius.'
+    source: owasp_asi
+  - text: Rate-limit and pause on anomalous fan-out across agents or tenants.
+    source: owasp_asi
+  - text: Independent policy enforcement so one bad agent cannot trigger chain reactions.
+    source: owasp_cs_agent
+  - text: Tamper-evident logs of inter-agent messages and policy decisions for forensics.
+    source: owasp_asi
+  - text: Re-run Architecture analyze after adding breaker/budget nodes.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - AgentA → AgentB → AgentC → Tools (unbounded)
+    + AgentA → rate-limit/circuit-breaker → AgentB → HITL/policy → Tools
+- id: arch-identity-privilege
+  match:
+    titles:
+    - Agent tools without per-agent identity / scoped credentials
+    title_contains:
+    - per-agent identity
+    - scoped credentials
+    - without per-agent
+    owasp:
+    - ASI03
+    categories:
+    - architecture
+  kind: architecture
+  summary: Give each agent its own identity and task-scoped, short-lived credentials (OWASP ASI03).
+  suggestions:
+  - text: 'ASI03: issue short-lived, narrowly scoped tokens per task — not a shared god-credential.'
+    source: owasp_asi
+  - text: Isolate agent identities and contexts; wipe state between tasks where feasible.
+    source: owasp_asi
+  - text: Mandate per-action authorization via a centralized policy engine.
+    source: owasp_cs_agent
+  - text: Require HITL for privilege escalation or irreversible actions.
+    source: owasp_llm06
+  - text: Re-run Architecture analyze after labeling agent identities on the board.
+    source: isovane
+  diff: |-
+    # Architecture board
+    - Agents → shared API key → Tools
+    + AgentA (idA, JIT token) → Tools
+    + AgentB (idB, JIT token) → Tools

@@ -171,6 +171,13 @@ class WorkspaceStore:
             else:
                 self._items = [_normalize(row) for row in deepcopy(_DEFAULTS)]
                 self._persist_unlocked()
+            try:
+                from isovane_serve.persistence import load_policies
+
+                for wid, pol in load_policies().items():
+                    self._policies[wid] = pol
+            except Exception:  # noqa: BLE001
+                pass
             for item in self._items:
                 self._policies.setdefault(item["id"], load_policy())
 
@@ -266,6 +273,12 @@ class WorkspaceStore:
     def set_policy(self, workspace_id: str, policy: Any) -> Any:
         with _LOCK:
             self._policies[workspace_id] = policy
+            try:
+                from isovane_serve.persistence import save_policies
+
+                save_policies(self._policies)
+            except Exception:  # noqa: BLE001
+                pass
             return policy
 
 

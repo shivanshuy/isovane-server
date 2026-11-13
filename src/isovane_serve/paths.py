@@ -23,5 +23,7 @@ POLICIES_DIR = Path(
 MODELS_YAML = CONFIG_DIR / "models.yaml"
 PROMPTS_YAML = CONFIG_DIR / "prompts.yaml"
 SCAN_YAML = CONFIG_DIR / "scan.yaml"
+REMEDIATIONS_YAML = CONFIG_DIR / "remediations.yaml"
+REMEDIATIONS_ARCHITECTURE_YAML = CONFIG_DIR / "remediations-architecture.yaml"
 DEFAULT_POLICY_YAML = POLICIES_DIR / "default.yaml"
 AGENT_RULES_DIR = RULES_DIR / "agent"

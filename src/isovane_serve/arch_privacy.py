@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from isovane_serve.insights import insight_for
+from isovane_serve.remediations import apply_remediation_fields
 from isovane_serve.models import Finding, FindingEvidence, SuggestedFix
 
 # Vendor / region tokens for egress classification.
@@ -320,6 +321,19 @@ def _finding(
     fields = insight.as_finding_fields(owasp)
     merged_tags = list(dict.fromkeys([*(fields.get("tags") or []), *tags]))
     fields["tags"] = merged_tags
+    suggested = apply_remediation_fields(
+        title=title,
+        owasp=owasp,
+        category="architecture",
+        path=filename,
+        existing=SuggestedFix(
+            kind="architecture",
+            summary=fix_summary,
+            checklist=insight.merge_checklist(checklist),
+        ),
+    )
+    if suggested.checklist:
+        fields["solutions"] = list(suggested.checklist)
     return Finding(
         workspace_id=workspace_id,
         source="analyze",
@@ -333,10 +347,6 @@ def _finding(
             tool="architecture-privacy",
             args=args,
         ),
-        suggested_fix=SuggestedFix(
-            kind="architecture",
-            summary=fix_summary,
-            checklist=insight.merge_checklist(checklist),
-        ),
+        suggested_fix=suggested,
         **fields,
     )

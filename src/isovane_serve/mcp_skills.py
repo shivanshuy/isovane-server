@@ -104,6 +104,12 @@ def _walk_mcp_servers(
         out.extend(_check_remote_auth(workspace_id, rel, server, cfg))
         out.extend(_check_wildcard_tools(workspace_id, rel, server, cfg))
         out.extend(_check_dangerous_command(workspace_id, rel, server, cfg))
+        try:
+            from isovane_serve.mcp_probe import deepen_mcp_server
+
+            out.extend(deepen_mcp_server(workspace_id, rel, server, cfg))
+        except Exception:  # noqa: BLE001 — never break MCP analyze
+            pass
     return out
 
 
