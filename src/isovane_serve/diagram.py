@@ -209,6 +209,39 @@ def analyze_diagram(
         }
         for f in findings[:12]
     ]
+    # Trust Studio: trifecta + dual-llm summary on inventory (non-blocking).
+    try:
+        from isovane_serve.dual_llm_lint import lint_dual_llm
+        from isovane_serve.trifecta import score_trifecta
+
+        dual = lint_dual_llm(workspace_id, arch_graph, persist_findings=False)
+        inventory["dual_llm"] = {
+            "verdict_count": len(dual.get("verdicts") or []),
+            "verdicts": dual.get("verdicts") or [],
+            "has_quarantine_pattern": dual.get("has_quarantine_pattern"),
+        }
+        tri = score_trifecta(workspace_id, graph=arch_graph, privacy_posture=inventory.get("privacy_posture"))
+        inventory["trifecta"] = (tri.get("scorecard") or tri)
+    except Exception:  # noqa: BLE001
+        pass
+    # Persist board for every diagram analyze (Trust Studio / Radar reopen).
+    try:
+        from isovane_serve.persistence import save_board
+
+        save_board(
+            workspace_id,
+            {
+                "source": "diagram",
+                "mode": mode,
+                "filename": filename,
+                "board": inventory.get("board"),
+                "graph": arch_graph,
+                "privacy_posture": inventory.get("privacy_posture"),
+                "trifecta": inventory.get("trifecta"),
+            },
+        )
+    except Exception:  # noqa: BLE001
+        pass
     return {"findings": findings, "inventory": inventory, "mode": mode, "text": text, "graph": arch_graph}
 
 

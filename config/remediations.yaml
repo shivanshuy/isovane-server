@@ -746,3 +746,34 @@ remediations:
     + # allow-list tools · gate invoke · redact PII · mark untrusted RAG
 
     '
+- id: dual-llm-shared-context
+  match:
+    titles: []
+    title_contains:
+    - dual-llm
+    - dual llm
+    - shared context
+    - quarantined model
+    owasp:
+    - LLM01
+    - ASI01
+    categories:
+    - prompt
+    - agency
+    - architecture
+  kind: architecture
+  summary: Do not share raw untrusted context with a tool-calling model — Dual-LLM / privilege drop.
+  suggestions:
+  - text: Quarantined LLM reads untrusted text and emits only structured symbols (no tools).
+    source: willison_dual
+  - text: Privileged LLM / orchestrator may call tools but never sees raw untrusted prose.
+    source: willison_dual
+  - text: Gate tool invokes outside the model (policy / HITL) even after Dual-LLM split.
+    source: owasp_llm06
+  - text: Open Trust Studio and Apply Dual-LLM pattern on the architecture board.
+    source: isovane
+  diff: |-
+    # Dual-LLM shared context
+    - untrusted_text → agent_with_tools
+    + untrusted_text → quarantined_llm → symbols
+    + symbols → orchestrator → privileged_llm_or_tools

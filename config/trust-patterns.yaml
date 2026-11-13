@@ -1,0 +1,91 @@
+# One-click Trust Pattern Catalog — board_ops applied by board_mutate.apply_pattern.
+patterns:
+  - id: hitl-gate
+    title: HITL / approval before tools
+    remediation_id: arch-hitl-gate
+    owasp: [LLM06, ASI09]
+    summary: Insert HITL between agents and consequential tools/MCP.
+    board_ops:
+      - insert_kind: hitl
+        label: HITL approval
+        rewire: agent_to_tools
+    policy_snippet: |
+      require_confirm: [send, pay, refund, shell, write, delete]
+  - id: policy-intent-gate
+    title: External policy / intent gate (PEP)
+    remediation_id: arch-policy-intent-gate
+    owasp: [ASI02, LLM06]
+    summary: Separate planner from tools with a policy enforcement point.
+    board_ops:
+      - insert_kind: hitl
+        label: Policy / intent gate
+        rewire: agent_to_tools
+        tag: pep
+    policy_snippet: |
+      block_if_untrusted_source: true
+      deny_unknown_tools: true
+  - id: circuit-breaker
+    title: Circuit breaker / rate limits
+    remediation_id: arch-cascading-failures
+    owasp: [ASI08]
+    summary: Cap multi-agent blast radius with breaker between agents.
+    board_ops:
+      - insert_kind: hitl
+        label: Circuit breaker
+        rewire: agent_to_agent
+        tag: breaker
+  - id: memory-validation
+    title: Memory validation / segmentation
+    remediation_id: arch-memory-poisoning
+    owasp: [ASI06]
+    summary: Validate durable memory writes before agents read them.
+    board_ops:
+      - insert_kind: hitl
+        label: Memory validation
+        rewire: agent_to_data
+        tag: memory-guard
+  - id: dlp-redact
+    title: DLP / redact before cloud LLM
+    remediation_id: arch-privacy-egress
+    owasp: [LLM02, ASI10]
+    summary: Insert redact/DLP before org data reaches cloud LLM.
+    board_ops:
+      - insert_kind: data
+        label: Redact / DLP
+        rewire: data_to_llm
+        tag: dlp
+  - id: trust-boundary
+    title: Mark UI ingress untrusted
+    remediation_id: arch-trust-boundary
+    owasp: [LLM01, ASI01]
+    summary: Label UI→agent as untrusted prompt-injection ingress.
+    board_ops:
+      - mark_kind: ui
+        tag: untrusted
+      - insert_boundary: trust
+        label: Untrusted ingress
+  - id: dual-llm
+    title: Dual-LLM / quarantined model
+    remediation_id: arch-dual-llm
+    owasp: [LLM01, ASI01]
+    summary: Split privileged (tools) vs quarantined (no tools) LLMs.
+    board_ops:
+      - dual_llm: true
+  - id: a2a-auth
+    title: Authenticated A2A
+    remediation_id: arch-a2a-auth
+    owasp: [ASI07]
+    summary: Require mTLS/signed markers on agent-to-agent edges.
+    board_ops:
+      - tag_edges: a2a
+        tag: mTLS
+  - id: mail-quarantine
+    title: Quarantine mail path
+    remediation_id: arch-mail-path
+    owasp: [ASI01, ASI02]
+    summary: Quarantine inbound mail before tools; HITL on send.
+    board_ops:
+      - insert_kind: hitl
+        label: Mail quarantine
+        rewire: ui_to_agent
+        tag: mail-quarantine

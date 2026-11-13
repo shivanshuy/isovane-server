@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from isovane_serve.auth import ApiKeyMiddleware
 from isovane_serve.routes import router
+from isovane_serve.routes_studio import router as studio_router
 
 app = FastAPI(title="isovane-server", version="0.1.0")
 
@@ -29,6 +30,7 @@ app.add_middleware(
 app.add_middleware(ApiKeyMiddleware)
 
 app.include_router(router)
+app.include_router(studio_router)
 
 
 @app.get("/health")

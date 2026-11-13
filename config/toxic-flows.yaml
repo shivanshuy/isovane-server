@@ -1,0 +1,26 @@
+# Named toxic capability pairs for Trust Studio / MCP probe.
+pairs:
+  - id: read-exfil
+    caps: [read_fs, exfil]
+    label: filesystem read + send/email — classic exfil path
+    severity: high
+  - id: secrets-exfil
+    caps: [secrets, exfil]
+    label: secret/credential access + outbound message
+    severity: critical
+  - id: shell-network
+    caps: [shell, network]
+    label: shell/exec + network — RCE with egress
+    severity: critical
+  - id: read-network
+    caps: [read_fs, network]
+    label: filesystem read + HTTP fetch — data staging/exfil
+    severity: high
+  - id: write-shell
+    caps: [write_fs, shell]
+    label: filesystem write + shell — persistence / payload drop
+    severity: high
+  - id: private-exfil
+    caps: [private, exfil]
+    label: private/PII data + outbound channel
+    severity: critical

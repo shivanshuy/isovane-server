@@ -150,6 +150,48 @@ def get_workspace_board(workspace_id: str):
     return {"workspace_id": workspace_id, **board}
 
 
+class BoardPut(BaseModel):
+    graph: dict | None = None
+    board: dict | None = None
+    source: str = "client"
+    mode: str | None = None
+    folder: str | None = None
+
+
+@router.put("/workspaces/{workspace_id}/board")
+def put_workspace_board(workspace_id: str, body: BoardPut):
+    """Persist an edited Structurizr board / graph for Trust Studio + re-analyze."""
+    _require_workspace(workspace_id)
+    from isovane_serve.architecture_graph import (
+        board_boundaries,
+        board_edges,
+        board_nodes,
+        normalize_graph,
+    )
+    from isovane_serve.persistence import save_board
+
+    raw = body.graph or body.board
+    if not raw:
+        raise HTTPException(status_code=400, detail="graph or board is required")
+    graph = normalize_graph(raw, source=body.source or "client")
+    board = {
+        "nodes": board_nodes(graph),
+        "edges": board_edges(graph),
+        "boundaries": board_boundaries(graph),
+    }
+    payload: dict[str, Any] = {
+        "source": body.source or "client",
+        "graph": graph,
+        "board": board,
+    }
+    if body.mode:
+        payload["mode"] = body.mode
+    if body.folder:
+        payload["folder"] = body.folder
+    save_board(workspace_id, payload)
+    return {"workspace_id": workspace_id, **payload}
+
+
 @router.patch("/workspaces/{workspace_id}")
 def update_workspace(workspace_id: str, body: WorkspaceUpdate):
     _require_workspace(workspace_id)

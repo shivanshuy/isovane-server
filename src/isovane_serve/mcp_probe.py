@@ -153,46 +153,44 @@ def _check_toxic_flows(
     *,
     source: str,
 ) -> list[Finding]:
+    from isovane_serve.capabilities import matching_pairs
+
     caps = _caps(tools)
-    pairs = [
-        ({"read_fs", "exfil"}, "filesystem read + send/email — classic exfil path"),
-        ({"secrets", "exfil"}, "secret/credential access + outbound message"),
-        ({"shell", "network"}, "shell/exec + network — RCE with egress"),
-        ({"read_fs", "network"}, "filesystem read + HTTP fetch — data staging/exfil"),
-        ({"write_fs", "shell"}, "filesystem write + shell — persistence / payload drop"),
-    ]
     out: list[Finding] = []
-    for need, label in pairs:
-        if need <= caps:
-            out.append(
-                _finding(
-                    workspace_id,
-                    rel,
-                    title=f"MCP toxic flow risk — {server}",
-                    summary=(
-                        f"Server '{server}' exposes a toxic capability pair ({label}) "
-                        f"via {source}. An agent that can call these tools in one session "
-                        "can chain them without extra privileges (ASI02 / ASI04)."
-                    ),
-                    severity="high",
-                    owasp=["ASI02", "ASI04", "LLM06"],
-                    checklist=[
-                        "Split tools across servers with least privilege",
-                        "Require HITL before exfil/shell tools",
-                        "Allow-list exact tool names — never '*'",
-                        "Deny cross-tool chaining in the policy gate",
-                    ],
-                    rule_id="mcp-toxic-flow",
-                    server=server,
-                    diff=(
-                        f"# MCP toxic flow ({source})\n"
-                        f"# server: {server}\n"
-                        f"# caps: {sorted(caps)}\n"
-                        f"- tools spanning {sorted(need)}\n"
-                        f"+ split into separate servers + HITL on high-impact side\n"
-                    ),
-                )
+    for pair in matching_pairs(caps):
+        need = set(pair["caps"])
+        label = str(pair["label"])
+        sev = str(pair.get("severity") or "high")
+        out.append(
+            _finding(
+                workspace_id,
+                rel,
+                title=f"MCP toxic flow risk — {server}",
+                summary=(
+                    f"Server '{server}' exposes a toxic capability pair ({label}) "
+                    f"via {source}. An agent that can call these tools in one session "
+                    "can chain them without extra privileges (ASI02 / ASI04)."
+                ),
+                severity=sev if sev in {"critical", "high", "medium", "low"} else "high",
+                owasp=["ASI02", "ASI04", "LLM06"],
+                checklist=[
+                    "Split tools across servers with least privilege",
+                    "Require HITL before exfil/shell tools",
+                    "Allow-list exact tool names — never '*'",
+                    "Deny cross-tool chaining in the policy gate",
+                    "Open Trust Studio → Toxic Flows for the capability graph",
+                ],
+                rule_id="mcp-toxic-flow",
+                server=server,
+                diff=(
+                    f"# MCP toxic flow ({source})\n"
+                    f"# server: {server}\n"
+                    f"# caps: {sorted(caps)}\n"
+                    f"- tools spanning {sorted(need)}\n"
+                    f"+ split into separate servers + HITL on high-impact side\n"
+                ),
             )
+        )
     return out
 
 

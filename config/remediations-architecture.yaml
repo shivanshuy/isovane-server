@@ -509,3 +509,85 @@ remediations:
     - Agents → shared API key → Tools
     + AgentA (idA, JIT token) → Tools
     + AgentB (idB, JIT token) → Tools
+- id: arch-toxic-flow
+  match:
+    titles: []
+    title_contains:
+    - toxic flow
+    - toxic capability
+    owasp:
+    - ASI02
+    - ASI04
+    categories:
+    - architecture
+  kind: architecture
+  summary: Split toxic capability pairs and gate high-impact tools (ASI02 / ASI04).
+  suggestions:
+  - text: Split read/secret tools onto a different MCP server than send/email/shell.
+    source: owasp_asi
+  - text: Require HITL before exfil/shell; deny cross-tool chaining in the policy gate.
+    source: owasp_llm06
+  - text: Open Trust Studio → Toxic Flows and apply HITL / Dual-LLM patterns on the board.
+    source: isovane
+  - text: Allow-list exact tool names — never '*'.
+    source: owasp_cs_agent
+  diff: |-
+    # Toxic capability pair
+    - Agent → MCP(read_file + send_email)
+    + Agent → MCP-read(read_file)
+    + Agent → HITL → MCP-send(send_email)
+- id: arch-dual-llm
+  match:
+    titles: []
+    title_contains:
+    - dual-llm
+    - dual llm
+    - camel
+    - quarantined
+    owasp:
+    - LLM01
+    - ASI01
+    categories:
+    - architecture
+  kind: architecture
+  summary: Split privileged (tools) vs quarantined (no tools) LLMs — Dual-LLM / CaMeL.
+  suggestions:
+  - text: Apply Trust Pattern Dual-LLM so UI/mail/RAG never reach tool-calling models directly.
+    source: willison_dual
+  - text: Quarantined model returns only structured symbols; orchestrator is deterministic.
+    source: willison_dual
+  - text: Privileged model may call tools but never reads raw untrusted text.
+    source: owasp_llm01
+  - text: Re-analyze Architecture after applying the Dual-LLM rewrite.
+    source: isovane
+  diff: |-
+    # Dual-LLM / CaMeL
+    - UI → Agent(+tools) → MCP
+    + UI → Quarantined LLM (no tools) → Orchestrator
+    + Privileged LLM (tools) → Orchestrator → MCP
+- id: arch-trifecta
+  match:
+    titles: []
+    title_contains:
+    - lethal trifecta
+    - trifecta
+    owasp:
+    - ASI01
+    - ASI02
+    - LLM06
+    categories:
+    - architecture
+  kind: architecture
+  summary: Break the lethal trifecta — private data + untrusted ingress + egress must not coexist ungated.
+  suggestions:
+  - text: Insert HITL / DLP / quarantine before any egress when private data and untrusted ingress are present.
+    source: owasp_asi
+  - text: Label private stores, untrusted ingress, and egress channels explicitly on the board.
+    source: isovane
+  - text: Run Toxic Flow Studio to list concrete capability chains blocking release.
+    source: isovane
+  diff: |-
+    # Lethal trifecta
+    - Private data + Untrusted UI + Egress (ungated)
+    + Private data → DLP → Agent
+    + Untrusted UI → Quarantine → Orchestrator → HITL → Egress

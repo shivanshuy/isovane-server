@@ -33,6 +33,10 @@ def boards_path() -> Path:
     return data_dir() / "boards.json"
 
 
+def studio_dir() -> Path:
+    return data_dir() / "studio"
+
+
 def _read_json(path: Path) -> Any:
     if not path.exists():
         return None
@@ -145,6 +149,22 @@ def get_board(workspace_id: str) -> dict[str, Any] | None:
     return board if isinstance(board, dict) else None
 
 
+def studio_path(workspace_id: str) -> Path:
+    return studio_dir() / f"{workspace_id}.json"
+
+
+def get_studio(workspace_id: str) -> dict[str, Any] | None:
+    raw = _read_json(studio_path(workspace_id))
+    return raw if isinstance(raw, dict) else None
+
+
+def save_studio_slice(workspace_id: str, key: str, payload: dict[str, Any]) -> None:
+    with _LOCK:
+        current = get_studio(workspace_id) or {}
+        current[str(key)] = payload
+        _write_json(studio_path(workspace_id), current)
+
+
 def delete_workspace_artifacts(workspace_id: str) -> None:
     """Drop persisted findings/traces/jobs/board for a deleted workspace."""
     with _LOCK:
@@ -169,3 +189,9 @@ def delete_workspace_artifacts(workspace_id: str) -> None:
         if workspace_id in policies:
             policies.pop(workspace_id, None)
             save_policies(policies)
+        sp = studio_path(workspace_id)
+        if sp.exists():
+            try:
+                sp.unlink()
+            except OSError:
+                pass
