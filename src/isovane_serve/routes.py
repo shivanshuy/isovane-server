@@ -160,7 +160,7 @@ class BoardPut(BaseModel):
 
 @router.put("/workspaces/{workspace_id}/board")
 def put_workspace_board(workspace_id: str, body: BoardPut):
-    """Persist an edited Structurizr board / graph for Trust Studio + re-analyze."""
+    """Persist an edited Structurizr board / graph for re-analyze."""
     _require_workspace(workspace_id)
     from isovane_serve.architecture_graph import (
         board_boundaries,
@@ -367,6 +367,8 @@ def _run_analyze_job(
     store.add_job(job)
     temp_dir: str | None = None
     try:
+        # New code scan replaces prior code issues for this workspace.
+        store.clear_open_code_findings(workspace_id)
         scan_folder = folder
         if archive is not None:
             path, temp_dir = extract_archive(archive[0], archive[1])
@@ -533,6 +535,64 @@ def analyze_diagram_json(body: DiagramRequest):
     }
 
 
+def _code_scan_source_from_inputs(inputs: dict[str, Any] | None) -> dict[str, str] | None:
+    """Human-facing label for the last code scan target (repo / folder / zip)."""
+    data = inputs or {}
+    if data.get("diagram"):
+        return None
+    repo = (data.get("repo") or "").strip()
+    if repo:
+        return {"kind": "repo", "label": repo}
+    folder = (data.get("folder") or "").strip()
+    if folder:
+        # Prefer the leaf directory name when a full path was stored.
+        leaf = folder.replace("\\", "/").rstrip("/").split("/")[-1] or folder
+        return {"kind": "folder", "label": leaf, "path": folder}
+    archive = (data.get("archive") or "").strip()
+    if archive:
+        leaf = archive.replace("\\", "/").split("/")[-1]
+        # Strip common archive suffixes so the UI reads as a project name.
+        for suffix in (".tar.gz", ".tgz", ".zip"):
+            if leaf.lower().endswith(suffix):
+                leaf = leaf[: -len(suffix)]
+                break
+        return {"kind": "archive", "label": leaf or archive, "filename": archive}
+    return None
+
+
+@router.get("/analyze/source")
+def get_analyze_source(workspace_id: str = Query(...)):
+    """Latest code-scan target for a workspace (survives refresh like findings)."""
+    if store.workspace_by_id(workspace_id) is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    for job in store.list_jobs(workspace_id):
+        if job.status not in {"done", "running", "failed"}:
+            continue
+        source = _code_scan_source_from_inputs(job.inputs)
+        if source is None:
+            continue
+        return {
+            "workspace_id": workspace_id,
+            "job_id": job.id,
+            "status": job.status,
+            "kind": source["kind"],
+            "label": source["label"],
+            "path": source.get("path"),
+            "filename": source.get("filename"),
+            "scanned_at": job.finished_at or job.created_at,
+        }
+    return {
+        "workspace_id": workspace_id,
+        "job_id": None,
+        "status": None,
+        "kind": None,
+        "label": None,
+        "path": None,
+        "filename": None,
+        "scanned_at": None,
+    }
+
+
 @router.get("/analyze/{job_id}")
 def get_analyze_job(job_id: str):
     job = store.get_job(job_id)
@@ -560,6 +620,15 @@ def get_findings(
     for item in hydrated:
         store.FINDINGS[item.id] = item
     return {"findings": [f.model_dump() for f in hydrated]}
+
+
+@router.delete("/findings/code")
+def clear_code_findings(workspace_id: str = Query(...)):
+    """Clear open code-scan issues before a new zip/repo upload replaces them."""
+    if store.workspace_by_id(workspace_id) is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    removed = store.clear_open_code_findings(workspace_id)
+    return {"ok": True, "removed": removed, "workspace_id": workspace_id}
 
 
 @router.get("/findings/{finding_id}")

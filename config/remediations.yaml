@@ -770,7 +770,7 @@ remediations:
     source: willison_dual
   - text: Gate tool invokes outside the model (policy / HITL) even after Dual-LLM split.
     source: owasp_llm06
-  - text: Open Trust Studio and Apply Dual-LLM pattern on the architecture board.
+  - text: Apply Dual-LLM on the architecture board, then re-analyze.
     source: isovane
   diff: |-
     # Dual-LLM shared context

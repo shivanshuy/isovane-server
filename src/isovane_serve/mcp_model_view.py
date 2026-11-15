@@ -220,10 +220,11 @@ def _view_to_finding(workspace_id: str, view: ModelSeesView) -> Finding:
         severity="high" if view.poison_signals else "medium",
         title=title,
         summary=summary,
-        tags=["model-sees", "mcp", "trust-studio", *view.poison_signals],
+        tags=["model-sees", "mcp", *view.poison_signals],
         owasp=["ASI04", "LLM01", "LLM03"],
         category="architecture",
         evidence=FindingEvidence(
+            tool="mcp-model-view",
             path=view.path,
             snippet=view.raw_text[:1200],
             source_channel="model-sees",

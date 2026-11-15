@@ -828,6 +828,13 @@ def run_pack(pack_id: str, inputs: dict[str, Any] | None = None) -> dict[str, An
         "gate_verdict": result.get("gate_verdict") or {},
         "teaching": result.get("teaching") or "",
         "related_incidents": [
-            {"headline": i["headline"], "when": i["when"], "source": i["source"]} for i in incidents
+            {
+                "headline": i["headline"],
+                "when": i.get("when") or "",
+                "story": i.get("story") or "",
+                "technical": i.get("technical") or "",
+                "source": i.get("source") or "",
+            }
+            for i in incidents
         ],
     }

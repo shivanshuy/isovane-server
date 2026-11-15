@@ -147,6 +147,37 @@ def add_finding(finding: Finding) -> Finding:
     return finding
 
 
+def _is_architecture_finding(finding: Finding) -> bool:
+    if finding.category == "architecture":
+        return True
+    evidence = finding.evidence
+    if evidence is not None and getattr(evidence, "diagram_region", None):
+        return True
+    return False
+
+
+def clear_open_code_findings(workspace_id: str) -> int:
+    """Drop open/accepted code-scan findings so a new zip/repo scan starts clean.
+
+    Architecture findings are left alone.
+    """
+    removed = 0
+    for fid, finding in list(FINDINGS.items()):
+        if finding.workspace_id != workspace_id:
+            continue
+        if finding.source != "analyze":
+            continue
+        if finding.status not in ("open", "accepted"):
+            continue
+        if _is_architecture_finding(finding):
+            continue
+        FINDINGS.pop(fid, None)
+        removed += 1
+    if removed:
+        persistence.save_findings(FINDINGS)
+    return removed
+
+
 def list_findings(
     workspace_id: str | None = None,
     status: str | None = None,
@@ -205,6 +236,14 @@ def put_job(job: ScanJob) -> ScanJob:
 
 def get_job(job_id: str) -> ScanJob | None:
     return SCAN_JOBS.get(job_id)
+
+
+def list_jobs(workspace_id: str | None = None) -> list[ScanJob]:
+    rows = list(SCAN_JOBS.values())
+    if workspace_id:
+        rows = [j for j in rows if j.workspace_id == workspace_id]
+    rows.sort(key=lambda j: j.created_at, reverse=True)
+    return rows
 
 
 def gate_stats(workspace_id: str) -> dict[str, int]:

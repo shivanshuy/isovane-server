@@ -206,9 +206,12 @@ def _flows_from_nodes(
 
 
 def _flow_to_finding(workspace_id: str, flow: ToxicFlow) -> Finding:
-    title = flow.finding_title or f"Toxic flow — {flow.label}"
+    chain = " → ".join(flow.nodes) if flow.nodes else flow.label
+    title = flow.finding_title or f"Dangerous tool chain — {chain}"
+    if title.lower().startswith("toxic flow"):
+        title = f"Dangerous tool chain — {chain}"
     summary = (
-        f"Toxic capability pair ({flow.label}) across {', '.join(flow.nodes) or 'workspace'}. "
+        f"Dangerous capability pair ({flow.label}) across {', '.join(flow.nodes) or 'workspace'}. "
         "An agent that can invoke these capabilities in one session can chain them "
         "without extra privileges (ASI02 / ASI04)."
     )
@@ -217,7 +220,7 @@ def _flow_to_finding(workspace_id: str, flow: ToxicFlow) -> Finding:
         "Require HITL before exfil/shell tools",
         "Allow-list exact tool names — never '*'",
         "Deny cross-tool chaining in the policy gate",
-        "Open Trust Studio → Toxic Flows to review the capability graph",
+        "Apply HITL on the architecture board, then Analyze board",
     ]
     insight = insight_for(title=title, issue_text=summary, tool="architecture-workflow")
     return Finding(
@@ -226,10 +229,11 @@ def _flow_to_finding(workspace_id: str, flow: ToxicFlow) -> Finding:
         severity=flow.severity if flow.severity in {"critical", "high", "medium", "low"} else "high",
         title=title,
         summary=summary,
-        tags=["toxic-flow", "trust-studio", flow.pair_id, *flow.sources],
+        tags=["toxic-flow", "dangerous-tool-chain", flow.pair_id, *flow.sources],
         owasp=["ASI02", "ASI04", "LLM06"],
         category="architecture",
         evidence=FindingEvidence(
+            tool="architecture-workflow",
             path=flow.nodes[0] if flow.nodes else None,
             snippet=f"caps={flow.caps} sources={flow.sources}",
             source_channel="toxic-flow",
@@ -240,7 +244,7 @@ def _flow_to_finding(workspace_id: str, flow: ToxicFlow) -> Finding:
             summary="Split capabilities and insert HITL / policy gate on the board.",
             checklist=checklist,
             diff=(
-                f"# Toxic flow ({flow.pair_id})\n"
+                f"# Dangerous tool chain ({flow.pair_id})\n"
                 f"# nodes: {flow.nodes}\n"
                 f"- combined caps {flow.caps}\n"
                 f"+ split servers + HITL on high-impact side\n"

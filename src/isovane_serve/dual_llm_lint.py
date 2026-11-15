@@ -127,7 +127,7 @@ def lint_dual_llm(
 def _verdict_to_finding(workspace_id: str, v: DualLlmVerdict) -> Finding:
     title = f"Dual-LLM gap — {v.agent_label}"
     checklist = [
-        "Apply Trust Pattern: Dual-LLM / quarantined model",
+        "Apply Dual-LLM on the architecture board",
         "Route UI/mail/RAG only to the quarantined model",
         "Tools only via privileged path + deterministic orchestrator",
         "Re-analyze Architecture after rewrite",
@@ -139,7 +139,7 @@ def _verdict_to_finding(workspace_id: str, v: DualLlmVerdict) -> Finding:
         severity=v.severity if v.severity in {"critical", "high", "medium", "low"} else "high",
         title=title,
         summary=v.summary,
-        tags=["dual-llm", "camel", "trust-studio"],
+        tags=["dual-llm", "camel"],
         owasp=list(v.owasp),
         category="architecture",
         evidence=FindingEvidence(

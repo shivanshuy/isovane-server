@@ -54,6 +54,32 @@ def test_prompt_is_ai_llm():
     )
 
 
+def test_mcp_tool_is_mcp_group():
+    assert (
+        classify_issue_type(
+            category="agency",
+            tags=["mcp", "supply"],
+            owasp=["ASI04"],
+            tool="mcp-skills",
+            title="MCP toxic flow risk — customer-tools",
+        )
+        == "MCP"
+    )
+
+
+def test_mcp_wins_over_ai_llm_tags():
+    assert (
+        classify_issue_type(
+            category="architecture",
+            tags=["mcp", "model-sees"],
+            owasp=["LLM01"],
+            tool="mcp-model-view",
+            title="What-the-model-sees risk — evil",
+        )
+        == "MCP"
+    )
+
+
 def test_finding_serializes_type_description_severity_label():
     finding = Finding(
         workspace_id="ws",

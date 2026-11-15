@@ -1,10 +1,10 @@
-"""Classify findings as AI_LLM vs GENERAL for UI grouping."""
+"""Classify findings as AI_LLM vs MCP vs GENERAL for UI grouping."""
 
 from __future__ import annotations
 
 from typing import Literal
 
-IssueType = Literal["AI_LLM", "GENERAL"]
+IssueType = Literal["AI_LLM", "MCP", "GENERAL"]
 
 _AI_CATEGORIES = frozenset({"prompt", "agency", "injection", "architecture", "runtime"})
 _AI_TOOLS = frozenset(
@@ -12,8 +12,10 @@ _AI_TOOLS = frozenset(
         "promptlint",
         "architecture-privacy",
         "architecture-workflow",
+        "architecture-llm",
     }
 )
+_MCP_TOOLS = frozenset({"mcp-skills", "mcp-probe", "mcp-model-view"})
 
 
 def classify_issue_type(
@@ -24,8 +26,9 @@ def classify_issue_type(
     tool: str | None = None,
     title: str = "",
 ) -> IssueType:
-    """AI_LLM = agent/prompt/LLM-cloud risks. GENERAL = classic AppSec/secrets/host.
+    """AI_LLM = agent/prompt/LLM risks. MCP = MCP configs/skills. GENERAL = classic AppSec.
 
+    MCP wins over AI_LLM when both would match so MCP findings get their own Issues group.
     Classic scanners (Bandit SSRF/urlopen, secrets, static sinks) stay GENERAL even when
     insights also attach LLM06 / LLM-amplified tags.
     """
@@ -33,6 +36,7 @@ def classify_issue_type(
     tool_l = (tool or "").lower()
     tags_l = [t.lower() for t in (tags or [])]
     title_l = (title or "").lower()
+    tags_blob = " ".join(tags_l)
 
     # GENERAL wins first for classic AppSec engines / categories.
     if tool_l in {"bandit", "detect-secrets", "presidio"}:
@@ -55,6 +59,16 @@ def classify_issue_type(
     ):
         return "GENERAL"
 
+    # MCP group — before AI_LLM so mcp.json / skills leave AI/LLM.
+    if tool_l in _MCP_TOOLS or tool_l.startswith("mcp-"):
+        return "MCP"
+    if any(t in {"mcp", "model-sees"} or t.startswith("mcp-") for t in tags_l):
+        return "MCP"
+    if "mcp" in title_l or "what-the-model-sees" in title_l or "model-sees" in title_l:
+        return "MCP"
+    if "model-sees" in tags_blob:
+        return "MCP"
+
     if cat in _AI_CATEGORIES:
         return "AI_LLM"
     if tool_l in _AI_TOOLS or tool_l.startswith("architecture-"):
@@ -62,11 +76,13 @@ def classify_issue_type(
     if any(t == "llm / agent" or t.startswith("llm /") for t in tags_l):
         return "AI_LLM"
     if any(
-        key in " ".join(tags_l)
-        for key in ("privacy & cloud", "workflow graph", "mcp", "rag", "hitl")
+        key in tags_blob
+        for key in ("privacy & cloud", "workflow graph", "rag", "hitl", "toxic-flow", "dual-llm")
     ):
         return "AI_LLM"
     if any(str(o).upper().startswith("LLM") for o in (owasp or [])):
+        return "AI_LLM"
+    if any(str(o).upper().startswith("ASI") for o in (owasp or [])):
         return "AI_LLM"
     if any(
         key in title_l
@@ -77,11 +93,13 @@ def classify_issue_type(
             "system message",
             "rag ",
             "hitl",
-            "mcp",
             "langchain",
             "crewai",
             "max_tokens",
             "jailbreak",
+            "dual-llm",
+            "dangerous tool chain",
+            "trifecta",
         )
     ):
         return "AI_LLM"

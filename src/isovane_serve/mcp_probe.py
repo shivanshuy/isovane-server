@@ -178,7 +178,7 @@ def _check_toxic_flows(
                     "Require HITL before exfil/shell tools",
                     "Allow-list exact tool names — never '*'",
                     "Deny cross-tool chaining in the policy gate",
-                    "Open Trust Studio → Toxic Flows for the capability graph",
+                    "Apply HITL on the architecture board for high-impact tools",
                 ],
                 rule_id="mcp-toxic-flow",
                 server=server,

@@ -1,4 +1,4 @@
-# Named toxic capability pairs for Trust Studio / MCP probe.
+# Named toxic capability pairs for dangerous tool chains / MCP probe.
 pairs:
   - id: read-exfil
     caps: [read_fs, exfil]

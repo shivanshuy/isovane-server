@@ -1,4 +1,4 @@
-"""Pydantic payloads for Trust Studio APIs."""
+"""Pydantic payloads for trust engine APIs (Architecture / Code UI)."""
 
 from __future__ import annotations
 

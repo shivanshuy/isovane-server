@@ -209,10 +209,29 @@ def analyze_diagram(
         }
         for f in findings[:12]
     ]
-    # Trust Studio: trifecta + dual-llm summary on inventory (non-blocking).
+    # Trust engines: toxic flows + dual-llm findings + trifecta strip (non-blocking).
     try:
         from isovane_serve.dual_llm_lint import lint_dual_llm
+        from isovane_serve.toxic_flows import analyze_toxic_flows
         from isovane_serve.trifecta import score_trifecta
+
+        toxic = analyze_toxic_flows(
+            workspace_id, graph=arch_graph, persist_findings=False
+        )
+        inventory["toxic_flows"] = {
+            "flow_count": len(toxic.get("flows") or []),
+            "flows": toxic.get("flows") or [],
+        }
+        from isovane_serve.studio_models import DualLlmVerdict, ToxicFlow
+        from isovane_serve.toxic_flows import _flow_to_finding
+
+        for flow_row in toxic.get("flows") or []:
+            try:
+                findings.append(
+                    _flow_to_finding(workspace_id, ToxicFlow.model_validate(flow_row))
+                )
+            except Exception:  # noqa: BLE001
+                continue
 
         dual = lint_dual_llm(workspace_id, arch_graph, persist_findings=False)
         inventory["dual_llm"] = {
@@ -220,11 +239,27 @@ def analyze_diagram(
             "verdicts": dual.get("verdicts") or [],
             "has_quarantine_pattern": dual.get("has_quarantine_pattern"),
         }
-        tri = score_trifecta(workspace_id, graph=arch_graph, privacy_posture=inventory.get("privacy_posture"))
-        inventory["trifecta"] = (tri.get("scorecard") or tri)
+        from isovane_serve.dual_llm_lint import _verdict_to_finding
+
+        for vrow in dual.get("verdicts") or []:
+            try:
+                findings.append(
+                    _verdict_to_finding(workspace_id, DualLlmVerdict.model_validate(vrow))
+                )
+            except Exception:  # noqa: BLE001
+                continue
+
+        tri = score_trifecta(
+            workspace_id,
+            graph=arch_graph,
+            privacy_posture=inventory.get("privacy_posture"),
+            toxic_flows=toxic.get("flows") or [],
+        )
+        inventory["trifecta"] = tri.get("scorecard") or tri
+        findings = _dedupe(findings)
     except Exception:  # noqa: BLE001
         pass
-    # Persist board for every diagram analyze (Trust Studio / Radar reopen).
+    # Persist board for every diagram analyze (Radar / board reopen).
     try:
         from isovane_serve.persistence import save_board
 

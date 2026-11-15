@@ -1,4 +1,4 @@
-"""Trust Studio APIs — toxic flows, dual-LLM, model-sees, patterns, trifecta."""
+"""Trust engine APIs used by Architecture / Code (toxic flows, dual-LLM, model-sees, patterns, trifecta)."""
 
 from __future__ import annotations
 

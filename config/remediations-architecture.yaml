@@ -515,24 +515,25 @@ remediations:
     title_contains:
     - toxic flow
     - toxic capability
+    - dangerous tool chain
     owasp:
     - ASI02
     - ASI04
     categories:
     - architecture
   kind: architecture
-  summary: Split toxic capability pairs and gate high-impact tools (ASI02 / ASI04).
+  summary: Split dangerous tool chains and gate high-impact tools (ASI02 / ASI04).
   suggestions:
   - text: Split read/secret tools onto a different MCP server than send/email/shell.
     source: owasp_asi
   - text: Require HITL before exfil/shell; deny cross-tool chaining in the policy gate.
     source: owasp_llm06
-  - text: Open Trust Studio → Toxic Flows and apply HITL / Dual-LLM patterns on the board.
+  - text: Apply HITL or Dual-LLM on the architecture board, then Analyze board.
     source: isovane
   - text: Allow-list exact tool names — never '*'.
     source: owasp_cs_agent
   diff: |-
-    # Toxic capability pair
+    # Dangerous tool chain
     - Agent → MCP(read_file + send_email)
     + Agent → MCP-read(read_file)
     + Agent → HITL → MCP-send(send_email)
